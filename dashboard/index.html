@@ -120,6 +120,9 @@
 
   /* ── Base ─────────────────────────────────────────────────── */
   * { box-sizing: border-box; }
+  /* Several components set an explicit display, which would otherwise beat
+     the [hidden] attribute and leave "hidden" elements on screen. */
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--plane);
@@ -1488,8 +1491,14 @@
                   <span class="field-hint">Web application client from Google Cloud → APIs &amp; Services → Credentials. It always ends in <code>.apps.googleusercontent.com</code>. No client secret needed — this page uses the browser token flow.</span>
                   <span class="field-hint" id="clientIdOut"></span>
                 </div>
+                <div class="field" id="secretRow" hidden>
+                  <label for="fClientSecret">OAuth client secret</label>
+                  <input class="input" id="fClientSecret" type="password" spellcheck="false" autocomplete="off"
+                         placeholder="GOCSPX-…">
+                  <span class="field-hint">Only the server sees this. It is stored in <code>.data/config.json</code> on the machine running the app and is never sent to the browser.</span>
+                </div>
                 <div class="field">
-                  <label>Authorized JavaScript origin &amp; redirect URI</label>
+                  <label id="originLabel">Authorized JavaScript origin &amp; redirect URI</label>
                   <span class="code" id="fOrigin" style="padding:8px 10px;display:block;overflow-x:auto"></span>
                   <span class="field-hint">Paste this exact value into both fields on the OAuth client, or Google rejects the sign-in.</span>
                 </div>
@@ -1507,9 +1516,9 @@
                 </div>
               </div>
 
-              <div class="divider" style="margin:16px 0"></div>
+              <div class="divider" id="tokenPasteDivider" style="margin:16px 0"></div>
 
-              <div class="field">
+              <div class="field" id="tokenPasteRow">
                 <label for="fToken">Or paste an access token</label>
                 <input class="input" id="fToken" type="text" spellcheck="false" placeholder="ya29.a0Af…">
                 <span class="field-hint">Fastest way to test: grab a token from the OAuth 2.0 Playground with both read-only scopes. Tokens expire after about an hour.</span>
@@ -2216,6 +2225,7 @@
   }
 
   function tokenLive() {
+    if (SERVER) return !!(serverStatus && serverStatus.connected);
     if (!cfg.token) return false;
     return !cfg.tokenExp || cfg.tokenExp > Date.now();
   }
@@ -2262,6 +2272,38 @@
     var el = $(id); if (!el) return;
     el.textContent = msg;
     el.style.color = tone === 'err' ? 'var(--critical-text)' : (tone === 'ok' ? 'var(--good-text)' : 'var(--ink-2)');
+  }
+
+  /* ── Server mode ──────────────────────────────────────────
+     When served by app/server.js the browser talks to that, not
+     to Google: the token exchange, refresh and every API call
+     happen server side, so no sandbox or CORS rule applies.
+     ─────────────────────────────────────────────────────────── */
+  var SERVER = !!window.TWIN_SEO_SERVER;
+  var serverStatus = null;
+
+  function srv(pathname, body) {
+    var opts = { headers: { 'Content-Type': 'application/json' } };
+    if (body) { opts.method = 'POST'; opts.body = JSON.stringify(body); }
+    return fetch(pathname, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || ('Server error ' + r.status));
+        return data;
+      });
+    }, function () {
+      throw new Error('Could not reach the Twin SEO server. Is it still running?');
+    });
+  }
+
+  function refreshServerStatus() {
+    if (!SERVER) return Promise.resolve(null);
+    return srv('/api/status').then(function (s) {
+      serverStatus = s;
+      cfg.clientId = s.clientId || cfg.clientId;
+      cfg.gscSite = s.gscSite || cfg.gscSite;
+      cfg.ga4Property = s.ga4Property || cfg.ga4Property;
+      return s;
+    }, function () { return null; });
   }
 
   /* ── The API layer ────────────────────────────────────────── */
@@ -2894,6 +2936,22 @@
     var days = parseInt($('gscRange').value, 10);
     gsc.busy = true;
     $('gscFetch').textContent = 'Fetching…';
+
+    if (SERVER) {
+      srv('/api/gsc?days=' + days + '&dim=' + encodeURIComponent(gsc.dim))
+        .then(function (d) {
+          var store = gsc.data && gsc.data.source === 'api' ? gsc.data.rows : {};
+          d.rows = Object.assign({ query: [], page: [], country: [], device: [] }, store,
+                                 (function (o) { o[d.dim] = d.rows; return o; })({}));
+          gsc.data = d;
+          $('gscSample').checked = false;
+          renderGsc();
+        })
+        .catch(function (err) { alertBar('gscKpis', err.message); })
+        .then(function () { gsc.busy = false; $('gscFetch').textContent = 'Fetch from API'; });
+      return;
+    }
+
     Promise.all([gscQuery(['date'], days, 400), gscQuery([gsc.dim], days, 25)])
       .then(function (res) {
         var byDate = (res[0].rows || []).slice().sort(function (a, b) {
@@ -2999,6 +3057,22 @@
     var days = parseInt($('ga4Range').value, 10);
     ga4.busy = true;
     $('ga4Fetch').textContent = 'Fetching…';
+
+    if (SERVER) {
+      srv('/api/ga4?days=' + days + '&dim=' + encodeURIComponent(ga4.dim))
+        .then(function (d) {
+          var store = ga4.data && ga4.data.source === 'api' ? ga4.data.rows : {};
+          d.rows = Object.assign({ channel: [], landing: [], device: [], country: [] }, store,
+                                 (function (o) { o[d.dim] = d.rows; return o; })({}));
+          ga4.data = d;
+          $('ga4Sample').checked = false;
+          renderGa4();
+        })
+        .catch(function (err) { alertBar('ga4Kpis', err.message); })
+        .then(function () { ga4.busy = false; $('ga4Fetch').textContent = 'Fetch from API'; });
+      return;
+    }
+
     Promise.all([
       ga4Report(['date'], ['sessions', 'activeUsers', 'engagedSessions'], days, 400),
       ga4Report([GA4_DIMS[ga4.dim]], ['sessions', 'activeUsers', 'engagementRate', 'keyEvents'], days, 25, 'sessions')
@@ -3069,6 +3143,7 @@
     var host = $('envBanner');
     if (!host) return;
     host.innerHTML = '';
+    if (SERVER) return;
     var blocked = inFrame() || location.protocol === 'file:';
     if (!blocked) return;
     var why = inFrame()
@@ -3091,15 +3166,26 @@
   }
 
   function fillForm() {
+    var secretRow = $('secretRow'), pasteRow = $('tokenPasteRow'), pasteDiv = $('tokenPasteDivider');
+    if (secretRow) secretRow.hidden = !SERVER;
+    if (pasteRow) pasteRow.hidden = SERVER;
+    if (pasteDiv) pasteDiv.hidden = SERVER;
+    $('btnConnect').textContent = SERVER ? 'Connect with Google' : 'Connect with Google';
     $('fClientId').value = cfg.clientId;
     $('fGscSite').value = cfg.gscSite;
     $('fGa4Prop').value = cfg.ga4Property;
     $('fGa4Meas').value = cfg.ga4Measurement;
     $('fSa').value = cfg.serviceAccount;
     $('fToken').value = cfg.token;
-    $('fOrigin').textContent = location.protocol === 'file:'
-      ? 'file:// — serve the page over http(s) for OAuth to work'
-      : redirectUri();
+    if (SERVER) {
+      $('originLabel').textContent = 'Authorized redirect URI';
+      $('fOrigin').textContent = (serverStatus && serverStatus.redirectUri) || (location.origin + '/auth/callback');
+    } else {
+      $('originLabel').textContent = 'Authorized JavaScript origin & redirect URI';
+      $('fOrigin').textContent = location.protocol === 'file:'
+        ? 'file:// — serve the page over http(s) for OAuth to work'
+        : redirectUri();
+    }
     refreshTokenPill();
     gscRefreshChrome();
     ga4RefreshChrome();
@@ -3111,6 +3197,19 @@
   }
 
   function refreshTokenPill() {
+    if (SERVER) {
+      if (serverStatus && serverStatus.connected) {
+        setPill($('tokenPill'), 'ok', 'Connected');
+        say('tokenInfo', 'The server holds a refresh token and renews access automatically.');
+      } else if (serverStatus && serverStatus.hasCredentials) {
+        setPill($('tokenPill'), 'warn', 'Not signed in');
+        say('tokenInfo', 'Credentials are saved. Hit Connect with Google to authorize.');
+      } else {
+        setPill($('tokenPill'), 'off', 'No credentials');
+        say('tokenInfo', 'Add the client ID and secret, then connect.');
+      }
+      return;
+    }
     if (tokenLive()) {
       var mins = cfg.tokenExp ? Math.max(0, Math.round((cfg.tokenExp - Date.now()) / 60000)) : null;
       setPill($('tokenPill'), 'ok', 'Token active');
@@ -3152,6 +3251,19 @@
   function wireConnections() {
     $('btnSave').addEventListener('click', function () {
       readForm();
+      if (SERVER) {
+        var payload = { clientId: cfg.clientId, gscSite: cfg.gscSite, ga4Property: cfg.ga4Property };
+        var secret = $('fClientSecret').value.trim();
+        if (secret) payload.clientSecret = secret;
+        srv('/api/settings', payload).then(function () {
+          return refreshServerStatus();
+        }).then(function () {
+          say('saveOut', 'Saved on the server.', 'ok');
+          fillForm();
+        }).catch(function (e) { say('saveOut', e.message, 'err'); });
+        gsc.data = null; ga4.data = null;
+        return;
+      }
       var ok = saveCfg();
       say('saveOut', ok ? 'Saved to this browser.' : 'Local storage is blocked here — settings hold for this session only.', ok ? 'ok' : 'err');
       fillForm();
@@ -3183,6 +3295,24 @@
     $('btnConnect').addEventListener('click', function () {
       $('fClientId').value = normalizeClientId($('fClientId').value);
       readForm();
+      if (SERVER) {
+        var problemS = clientIdProblem(cfg.clientId);
+        if (problemS) { say('clientIdOut', problemS, 'err'); return; }
+        if (!$('fClientSecret').value.trim()) {
+          say('saveOut', 'The server flow needs the client secret too — it never leaves the server.', 'err');
+          $('fClientSecret').focus();
+          return;
+        }
+        say('saveOut', 'Saving credentials…');
+        srv('/api/settings', {
+          clientId: cfg.clientId,
+          clientSecret: $('fClientSecret').value.trim(),
+          gscSite: cfg.gscSite,
+          ga4Property: cfg.ga4Property
+        }).then(function () { location.href = '/auth/google'; })
+          .catch(function (e) { say('saveOut', e.message, 'err'); });
+        return;
+      }
       var problem = clientIdProblem(cfg.clientId);
       if (problem) {
         $('fClientId').setAttribute('aria-invalid', 'true');
@@ -3208,6 +3338,15 @@
     });
 
     $('btnDisconnect').addEventListener('click', function () {
+      if (SERVER) {
+        srv('/api/disconnect', {}).then(function () {
+          return refreshServerStatus();
+        }).then(function () {
+          fillForm();
+          toast('Signed out. The stored Google token has been deleted from the server.');
+        }).catch(function (e) { say('tokenInfo', e.message, 'err'); });
+        return;
+      }
       cfg.token = ''; cfg.tokenExp = 0; cfg.tokenSource = '';
       saveCfg(); fillForm();
       say('tokenInfo', 'Signed out on this device.');
@@ -3216,8 +3355,10 @@
     $('btnTestGsc').addEventListener('click', function () {
       readForm(); saveCfg();
       say('gscTestOut', 'Testing…');
-      api('https://searchconsole.googleapis.com/webmasters/v3/sites').then(function (res) {
-        var sites = (res.siteEntry || []).map(function (s) { return s.siteUrl; });
+      (SERVER ? srv('/api/gsc/sites') : api('https://searchconsole.googleapis.com/webmasters/v3/sites')
+        .then(function (res) { return { sites: (res.siteEntry || []).map(function (s) { return s.siteUrl; }) }; })
+      ).then(function (res) {
+        var sites = res.sites || [];
         var pick = $('fGscPick');
         pick.innerHTML = '<option value="">Pick a property…</option>';
         sites.forEach(function (s) {
@@ -3239,7 +3380,7 @@
       readForm(); saveCfg();
       if (!cfg.ga4Property) { say('ga4TestOut', 'Add the numeric property ID first.', 'err'); return; }
       say('ga4TestOut', 'Testing…');
-      ga4Report(['date'], ['sessions'], 7, 1).then(function (res) {
+      (SERVER ? srv('/api/ga4?days=7&dim=channel') : ga4Report(['date'], ['sessions'], 7, 1)).then(function (res) {
         var n = (res.rows || []).length;
         say('ga4TestOut', n ? 'Connected — the property returned data.' : 'Connected, but the property reported no rows for the last 7 days.', n ? 'ok' : 'warn');
         ga4RefreshChrome();
@@ -3387,6 +3528,18 @@
     var tray = $('hidden');
     if (tray) { tray.scrollIntoView({ behavior: 'smooth', block: 'center' }); flash(tray); }
   });
+
+  if (SERVER) {
+    refreshServerStatus().then(function () {
+      fillForm();
+      gscRefreshChrome();
+      ga4RefreshChrome();
+      if (/[?&]connected=1/.test(location.search)) {
+        toast('Connected to Google. Open Search Console or Analytics and hit Fetch from API.');
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
+    });
+  }
 
   wireConnections();
   wireImport('gsc', importGscCsv);

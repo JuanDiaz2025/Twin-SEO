@@ -1,0 +1,14 @@
+{
+  "name": "twin-seo",
+  "version": "0.2.0",
+  "private": true,
+  "description": "SEO console for twinhomebuyer.com, with live Google Search Console and GA4 data",
+  "main": "app/server.js",
+  "scripts": {
+    "start": "node app/server.js",
+    "dev": "node app/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
