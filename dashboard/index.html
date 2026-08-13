@@ -3234,6 +3234,29 @@
     $('cfgOut').value = JSON.stringify(safe, null, 2);
   }
 
+  // Settings belong on the server when one is running — writing them only to
+  // localStorage is why "Test connection" used to report a property as missing
+  // right after it was typed in.
+  function persistSettings() {
+    readForm();
+    if (SERVER) {
+      var payload = {
+        clientId: cfg.clientId,
+        gscSite: cfg.gscSite,
+        ga4Property: cfg.ga4Property,
+        ga4Measurement: cfg.ga4Measurement
+      };
+      var secretField = $('fClientSecret');
+      var secret = secretField ? secretField.value.trim() : '';
+      if (secret) payload.clientSecret = secret;
+      return srv('/api/settings', payload).then(function () {
+        return refreshServerStatus();
+      });
+    }
+    saveCfg();
+    return Promise.resolve();
+  }
+
   function readForm() {
     cfg.clientId = $('fClientId').value.trim();
     cfg.gscSite = $('fGscSite').value.trim();
@@ -3252,12 +3275,7 @@
     $('btnSave').addEventListener('click', function () {
       readForm();
       if (SERVER) {
-        var payload = { clientId: cfg.clientId, gscSite: cfg.gscSite, ga4Property: cfg.ga4Property };
-        var secret = $('fClientSecret').value.trim();
-        if (secret) payload.clientSecret = secret;
-        srv('/api/settings', payload).then(function () {
-          return refreshServerStatus();
-        }).then(function () {
+        persistSettings().then(function () {
           say('saveOut', 'Saved on the server.', 'ok');
           fillForm();
         }).catch(function (e) { say('saveOut', e.message, 'err'); });
@@ -3353,9 +3371,9 @@
     });
 
     $('btnTestGsc').addEventListener('click', function () {
-      readForm(); saveCfg();
       say('gscTestOut', 'Testing…');
-      (SERVER ? srv('/api/gsc/sites') : api('https://searchconsole.googleapis.com/webmasters/v3/sites')
+      persistSettings().then(function () {
+      return (SERVER ? srv('/api/gsc/sites') : api('https://searchconsole.googleapis.com/webmasters/v3/sites')
         .then(function (res) { return { sites: (res.siteEntry || []).map(function (s) { return s.siteUrl; }) }; })
       ).then(function (res) {
         var sites = res.sites || [];
@@ -3369,18 +3387,29 @@
         });
         say('gscTestOut', sites.length + ' propert' + (sites.length === 1 ? 'y' : 'ies') + ' visible to this account.', 'ok');
         gscRefreshChrome();
+      });
       }).catch(function (e) { say('gscTestOut', e.message, 'err'); });
     });
 
     $('fGscPick').addEventListener('change', function () {
-      if (this.value) { $('fGscSite').value = this.value; readForm(); saveCfg(); gscRefreshChrome(); renderCfgJson(); }
+      if (this.value) {
+        $('fGscSite').value = this.value;
+        persistSettings().then(function () { gscRefreshChrome(); renderCfgJson(); });
+      }
     });
 
     $('btnTestGa4').addEventListener('click', function () {
-      readForm(); saveCfg();
+      readForm();
       if (!cfg.ga4Property) { say('ga4TestOut', 'Add the numeric property ID first.', 'err'); return; }
+      if (!/^\d+$/.test(cfg.ga4Property)) {
+        say('ga4TestOut', 'A GA4 property ID is digits only — “' + cfg.ga4Property + '” is not one. ' +
+          'GA4 → Admin → Property details shows it.', 'err');
+        return;
+      }
       say('ga4TestOut', 'Testing…');
-      (SERVER ? srv('/api/ga4?days=7&dim=channel') : ga4Report(['date'], ['sessions'], 7, 1)).then(function (res) {
+      persistSettings().then(function () {
+        return SERVER ? srv('/api/ga4?days=7&dim=channel') : ga4Report(['date'], ['sessions'], 7, 1);
+      }).then(function (res) {
         var n = (res.rows || []).length;
         say('ga4TestOut', n ? 'Connected — the property returned data.' : 'Connected, but the property reported no rows for the last 7 days.', n ? 'ok' : 'warn');
         ga4RefreshChrome();
@@ -3389,6 +3418,24 @@
 
     // Imported data survives a range or sample toggle; API results do not,
     // since the range is part of the request.
+    // Leaving a settings field saves it, so no value can sit in the form
+    // looking applied while the server has never seen it.
+    ['fGscSite', 'fGa4Prop', 'fGa4Meas', 'fClientSecret'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.addEventListener('blur', function () {
+        var before = JSON.stringify([cfg.gscSite, cfg.ga4Property, cfg.ga4Measurement]);
+        readForm();
+        if (JSON.stringify([cfg.gscSite, cfg.ga4Property, cfg.ga4Measurement]) === before && id !== 'fClientSecret') return;
+        persistSettings().then(function () {
+          gscRefreshChrome();
+          ga4RefreshChrome();
+          renderCfgJson();
+          say('saveOut', 'Saved.', 'ok');
+        }).catch(function (e) { say('saveOut', e.message, 'err'); });
+      });
+    });
+
     ['gscRange', 'gscSample'].forEach(function (id) {
       $(id).addEventListener('change', function () {
         if (gsc.data && gsc.data.source !== 'import') gsc.data = null;

@@ -63,6 +63,7 @@ function loadConfig() {
     clientId: process.env.GOOGLE_CLIENT_ID || stored.clientId || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
+    ga4Measurement: stored.ga4Measurement || '',
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, '')
   };
 }
@@ -351,6 +352,7 @@ const server = http.createServer(async (req, res) => {
         clientId: cfg.clientId,
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
+        ga4Measurement: cfg.ga4Measurement,
         redirectUri: redirectUri(req)
       });
     }
@@ -358,7 +360,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       const patch = {};
-      ['clientId', 'clientSecret', 'gscSite', 'ga4Property'].forEach(k => {
+      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement'].forEach(k => {
         if (typeof body[k] === 'string') patch[k] = body[k].trim();
       });
       if (patch.ga4Property) patch.ga4Property = patch.ga4Property.replace(/^properties\//, '');
