@@ -2399,15 +2399,27 @@
   var SERVER = !!window.TWIN_SEO_SERVER;
   var serverStatus = null;
 
-  function srv(pathname, body) {
+  function srv(pathname, body, timeoutMs) {
     var opts = { headers: { 'Content-Type': 'application/json' } };
     if (body) { opts.method = 'POST'; opts.body = JSON.stringify(body); }
+    var timer = null;
+    if (timeoutMs) {
+      var controller = new AbortController();
+      opts.signal = controller.signal;
+      timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+    }
+    var clear = function () { if (timer) clearTimeout(timer); };
     return fetch(pathname, opts).then(function (r) {
+      clear();
       return r.json().catch(function () { return {}; }).then(function (data) {
         if (!r.ok) throw new Error(data.error || ('Server error ' + r.status));
         return data;
       });
-    }, function () {
+    }, function (err) {
+      clear();
+      if (err && err.name === 'AbortError') {
+        throw new Error('Gave up waiting for a reply. The request was taking far longer than it should — try again.');
+      }
       throw new Error('Could not reach the Twin SEO server. Is it still running?');
     });
   }
@@ -2743,7 +2755,7 @@
     $('gscFetch').textContent = 'Fetching…';
 
     if (SERVER) {
-      srv('/api/gsc?days=' + days + '&dim=' + encodeURIComponent(gsc.dim))
+      srv('/api/gsc?days=' + days + '&dim=' + encodeURIComponent(gsc.dim), null, 60000)
         .then(function (d) {
           var store = gsc.data && gsc.data.source === 'api' ? gsc.data.rows : {};
           d.rows = Object.assign({ query: [], page: [], country: [], device: [] }, store,
@@ -2926,7 +2938,7 @@
     $('ga4Fetch').textContent = 'Fetching…';
 
     if (SERVER) {
-      srv('/api/ga4?days=' + days + '&dim=' + encodeURIComponent(ga4.dim))
+      srv('/api/ga4?days=' + days + '&dim=' + encodeURIComponent(ga4.dim), null, 60000)
         .then(function (d) {
           var store = ga4.data && ga4.data.source === 'api' ? ga4.data.rows : {};
           d.rows = Object.assign({ channel: [], landing: [], device: [], country: [] }, store,
@@ -3263,7 +3275,7 @@
     $('btnTestGsc').addEventListener('click', function () {
       say('gscTestOut', 'Testing…');
       persistSettings().then(function () {
-      return (SERVER ? srv('/api/gsc/sites') : api('https://searchconsole.googleapis.com/webmasters/v3/sites')
+      return (SERVER ? srv('/api/gsc/sites', null, 45000) : api('https://searchconsole.googleapis.com/webmasters/v3/sites')
         .then(function (res) { return { sites: (res.siteEntry || []).map(function (s) { return s.siteUrl; }) }; })
       ).then(function (res) {
         var sites = res.sites || [];
@@ -3310,7 +3322,7 @@
       persistSettings().then(function () {
         // List what this account can actually read before testing the ID, so a
         // permissions failure can name the cause instead of restating Google.
-        return SERVER ? srv('/api/ga4/properties').catch(function () { return null; }) : null;
+        return SERVER ? srv('/api/ga4/properties', null, 45000).catch(function () { return null; }) : null;
       }).then(function (list) {
         if (list && list.properties) {
           fillGa4Picker(list.properties);
@@ -3325,7 +3337,7 @@
             return null;
           }
         }
-        return SERVER ? srv('/api/ga4?days=7&dim=channel') : ga4Report(['date'], ['sessions'], 7, 1);
+        return SERVER ? srv('/api/ga4?days=7&dim=channel', null, 45000) : ga4Report(['date'], ['sessions'], 7, 1);
       }).then(function (res) {
         if (!res) return;
         var n = (res.rows || []).length;
@@ -3609,7 +3621,7 @@
   // the server is doing rather than pretending nothing ever ran.
   function syncAuditState() {
     if (!SERVER) return;
-    srv('/api/audit/status').then(function (s) {
+    srv('/api/audit/status', null, 15000).then(function (s) {
       if (s.state === 'running') { attachToRunningAudit(); return; }
       if (s.state === 'done' && s.result) {
         resetAuditControls();
@@ -3626,7 +3638,7 @@
   }
 
   function pollAudit() {
-    srv('/api/audit/status').then(function (s) {
+    srv('/api/audit/status', null, 15000).then(function (s) {
       if (s.state === 'running') {
         var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
         $('auditBar').style.width = Math.max(4, pct) + '%';
@@ -3711,7 +3723,7 @@
         url: url,
         maxPages: Number($('auditMax').value),
         pace: $('auditPace').value
-      })
+      }, 30000)
         .then(function () {
           if (auditTimer) clearInterval(auditTimer);
           auditTimer = setInterval(pollAudit, 700);
@@ -3837,9 +3849,19 @@
     $('psiTabs').addEventListener('click', function (ev) {
       var t = ev.target.closest('[data-strategy]');
       if (!t) return;
+      if (psi.busy) { toast('Still measuring — one moment.'); return; }
+      var next = t.getAttribute('data-strategy');
+      if (next === psi.strategy) return;
       this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
       t.setAttribute('aria-selected', 'true');
-      psi.strategy = t.getAttribute('data-strategy');
+      psi.strategy = next;
+      // Showing mobile numbers under a Desktop tab would be a lie, so the old
+      // result goes and the new one is fetched straight away.
+      if (psi.lastResult) {
+        $('psiResult').hidden = true;
+        psi.lastResult = null;
+        $('psiRun').click();
+      }
     });
 
     btn.addEventListener('click', function () {
@@ -3854,8 +3876,10 @@
       btn.disabled = true;
       btn.textContent = 'Measuring…';
       say('psiOut', 'Google is loading the page and measuring it — this takes 20 to 40 seconds.');
-      srv('/api/pagespeed?strategy=' + psi.strategy + '&url=' + encodeURIComponent(target))
+      // Google's own run tops out well under this; anything longer is stuck.
+      srv('/api/pagespeed?strategy=' + psi.strategy + '&url=' + encodeURIComponent(target), null, 120000)
         .then(function (d) {
+          psi.lastResult = d;
           renderPsi(d);
           say('psiOut', '');
         })

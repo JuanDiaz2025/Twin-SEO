@@ -357,7 +357,20 @@ async function pageSpeed(url, strategy) {
   // A key is optional; without one Google rate-limits by IP.
   if (cfg.psiKey) api.searchParams.set('key', cfg.psiKey);
 
-  const res = await fetch(api.toString(), { headers: { Accept: 'application/json' } });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 100000);
+  let res;
+  try {
+    res = await fetch(api.toString(), { headers: { Accept: 'application/json' }, signal: controller.signal });
+  } catch (err) {
+    const failure = new Error(err.name === 'AbortError'
+      ? 'PageSpeed did not answer in time. Google is sometimes slow on the first run for a URL — try again.'
+      : 'Could not reach the PageSpeed service: ' + (err.message || 'network error'));
+    failure.status = 504;
+    throw failure;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch (e) { /* fall through to the raw text */ }
