@@ -649,6 +649,32 @@
     background: var(--warning); color: #241a00; padding: 3px 7px; border-radius: 4px; font-weight: 700;
   }
 
+  /* ── Import drop zone ────────────────────────────────────── */
+  .drop {
+    border: 1.5px dashed var(--hairline);
+    border-radius: 9px;
+    background: var(--surface-sub);
+    padding: 16px;
+    display: grid; gap: 10px; justify-items: center; text-align: center;
+    transition: border-color .12s, background .12s;
+  }
+  .drop.is-over { border-color: var(--accent-line); background: var(--accent-wash); }
+  .drop p { margin: 0; font-size: 12.5px; color: var(--ink-2); max-width: 54ch; }
+  .drop .file-btn {
+    border: 1px solid var(--hairline); background: var(--surface);
+    border-radius: 7px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+  }
+  .drop .file-btn:hover { border-color: var(--baseline); }
+  .import-status { display: grid; gap: 4px; margin-top: 12px; }
+  .import-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--ink-2);
+    padding: 5px 0; border-top: 1px solid var(--hairline-soft);
+  }
+  .import-row .ok { color: var(--good-text); font-weight: 700; }
+  .import-row .name { color: var(--ink); font-weight: 600; }
+  .import-row .grow { flex: 1 1 auto; }
+
   /* ── Toasts ──────────────────────────────────────────────── */
   .toast-host {
     position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -1287,6 +1313,36 @@
         </div>
       </section>
 
+
+      <section class="w" id="gscImportCard">
+        <div class="w-head">
+          <h3>Import an export</h3>
+          <span class="info" title="Reads the file in your browser. Nothing is uploaded.">i</span>
+          <div class="w-tools">
+            <span class="status-pill" id="gscImportPill"><i></i>Nothing imported</span>
+            <button class="btn" id="gscImportClear">Clear imported</button>
+          </div>
+        </div>
+        <p class="w-sub">Search Console → Performance → Export → Download CSV. The zip holds Queries, Pages, Countries, Devices and Dates — unzip it and drop them all in.</p>
+        <div class="w-body" style="padding-top:0">
+          <div class="drop" id="gscDrop">
+            <p>Drop Search Console CSV files here — several at once is fine.</p>
+            <button class="btn file-btn" id="gscFileBtn">Choose files</button>
+            <input type="file" id="gscFile" accept=".csv,.tsv,.txt" multiple hidden>
+            <p style="font-size:11.5px">Queries, Pages, Countries, Devices and Dates are each recognised by their own column headers.</p>
+          </div>
+          <details style="margin-top:12px">
+            <summary style="font-size:12.5px;cursor:pointer;color:var(--ink-2)">Or paste the CSV text</summary>
+            <textarea class="input" id="gscPaste" rows="5" spellcheck="false" style="margin-top:8px" placeholder="Paste the contents of one exported CSV"></textarea>
+            <div class="actions" style="margin-top:8px">
+              <button class="btn" id="gscPasteBtn">Load pasted text</button>
+              <span class="field-hint" id="gscPasteOut"></span>
+            </div>
+          </details>
+          <div class="import-status" id="gscImportStatus"></div>
+        </div>
+      </section>
+
       <section class="w" id="gscKpiCard">
         <div class="w-head">
           <h3>Performance</h3>
@@ -1345,6 +1401,36 @@
             </label>
             <button class="btn btn-primary" id="ga4Fetch">Fetch from API</button>
           </div>
+        </div>
+      </section>
+
+
+      <section class="w" id="ga4ImportCard">
+        <div class="w-head">
+          <h3>Import an export</h3>
+          <span class="info" title="Reads the file in your browser. Nothing is uploaded.">i</span>
+          <div class="w-tools">
+            <span class="status-pill" id="ga4ImportPill"><i></i>Nothing imported</span>
+            <button class="btn" id="ga4ImportClear">Clear imported</button>
+          </div>
+        </div>
+        <p class="w-sub">GA4 → any report → Share this report → Download file → CSV. Traffic acquisition and Pages and screens both work.</p>
+        <div class="w-body" style="padding-top:0">
+          <div class="drop" id="ga4Drop">
+            <p>Drop GA4 CSV files here — several at once is fine.</p>
+            <button class="btn file-btn" id="ga4FileBtn">Choose files</button>
+            <input type="file" id="ga4File" accept=".csv,.tsv,.txt" multiple hidden>
+            <p style="font-size:11.5px">The header row is found automatically, so GA4’s comment preamble can stay in the file.</p>
+          </div>
+          <details style="margin-top:12px">
+            <summary style="font-size:12.5px;cursor:pointer;color:var(--ink-2)">Or paste the CSV text</summary>
+            <textarea class="input" id="ga4Paste" rows="5" spellcheck="false" style="margin-top:8px" placeholder="Paste the contents of one exported CSV"></textarea>
+            <div class="actions" style="margin-top:8px">
+              <button class="btn" id="ga4PasteBtn">Load pasted text</button>
+              <span class="field-hint" id="ga4PasteOut"></span>
+            </div>
+          </details>
+          <div class="import-status" id="ga4ImportStatus"></div>
         </div>
       </section>
 
@@ -2364,6 +2450,321 @@
     };
   }
 
+  /* ═══ CSV import ═══════════════════════════════════════════
+     Reading a file needs no network, so this is the one path to
+     real numbers that works everywhere, sandbox included.
+     ═══════════════════════════════════════════════════════════ */
+
+  function parseCsv(text) {
+    var rows = [], row = [], field = '', quoted = false, i = 0;
+    text = String(text).replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+    // A tab-separated export is just as welcome as a comma-separated one.
+    var delim = (text.split('\n')[0] || '').indexOf('\t') > -1 ? '\t' : ',';
+    for (; i < text.length; i++) {
+      var c = text[i];
+      if (quoted) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else quoted = false;
+        } else field += c;
+      } else if (c === '"') quoted = true;
+      else if (c === delim) { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+  }
+
+  // GA4 exports carry a "# ..." preamble; the header is the first row that
+  // has at least two cells and a recognisable metric name.
+  function findHeader(rows) {
+    for (var i = 0; i < Math.min(rows.length, 40); i++) {
+      var r = rows[i];
+      if (!r || r.length < 2) continue;
+      if (String(r[0]).trim().charAt(0) === '#') continue;
+      var joined = r.join(' ').toLowerCase();
+      if (/click|impression|session|user|view|position|ctr|event|conversion/.test(joined)) return i;
+    }
+    return -1;
+  }
+
+  function num(v) {
+    if (v == null) return 0;
+    var s = String(v).replace(/[,\s]/g, '').replace(/%$/, '');
+    var n = parseFloat(s);
+    return isFinite(n) ? n : 0;
+  }
+
+  function colIndex(header, re) {
+    for (var i = 0; i < header.length; i++) if (re.test(String(header[i]).trim())) return i;
+    return -1;
+  }
+
+  function normDate(v) {
+    var s = String(v).trim();
+    var m = s.match(/^(\d{4})-?(\d{2})-?(\d{2})$/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    return s;
+  }
+
+  /* ── Search Console files ─────────────────────────────────── */
+  var GSC_KINDS = [
+    { key: 'date',    label: 'Dates',     re: /^(date|day)$/i },
+    { key: 'query',   label: 'Queries',   re: /quer(y|ies)|search term/i },
+    { key: 'page',    label: 'Pages',     re: /^(top )?(page|url|landing page)s?$/i },
+    { key: 'country', label: 'Countries', re: /countr/i },
+    { key: 'device',  label: 'Devices',   re: /device/i }
+  ];
+
+  function importGscCsv(text, filename) {
+    var rows = parseCsv(text);
+    var h = findHeader(rows);
+    if (h < 0) throw new Error('No header row found in ' + filename + '.');
+    var header = rows[h].map(function (c) { return String(c).trim(); });
+    var iClicks = colIndex(header, /click/i);
+    var iImpr = colIndex(header, /impression/i);
+    var iCtr = colIndex(header, /ctr/i);
+    var iPos = colIndex(header, /position/i);
+    if (iClicks < 0 && iImpr < 0) throw new Error(filename + ' has no Clicks or Impressions column.');
+
+    var kind = null;
+    for (var k = 0; k < GSC_KINDS.length; k++) {
+      if (GSC_KINDS[k].re.test(header[0]) || GSC_KINDS[k].re.test(filename)) { kind = GSC_KINDS[k]; break; }
+    }
+    if (!kind) throw new Error('Could not tell what ' + filename + ' lists — its first column reads "' + header[0] + '".');
+
+    var body = rows.slice(h + 1).filter(function (r) { return String(r[0]).trim() && String(r[0]).charAt(0) !== '#'; });
+    var store = importStore(gsc, 'gsc');
+
+    if (kind.key === 'date') {
+      var dated = body.map(function (r) {
+        return { d: normDate(r[0]), clicks: num(r[iClicks]), impressions: num(r[iImpr]) };
+      }).sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+      store.labels = dated.map(function (r) { return r.d; });
+      store.series.clicks = dated.map(function (r) { return r.clicks; });
+      store.series.impressions = dated.map(function (r) { return r.impressions; });
+    } else {
+      store.rows[kind.key] = body.map(function (r) {
+        var clicks = num(r[iClicks]), impressions = num(r[iImpr]);
+        return {
+          key: String(r[0]).trim(),
+          clicks: clicks,
+          impressions: impressions,
+          ctr: iCtr > -1 ? num(r[iCtr]) : (impressions ? clicks / impressions * 100 : 0),
+          position: iPos > -1 ? num(r[iPos]) : 0
+        };
+      }).sort(function (a, b) { return b.clicks - a.clicks; });
+    }
+    recomputeGscTotals(store);
+    store.loaded[kind.key] = body.length;
+    return kind.label + ' — ' + body.length + ' row' + (body.length === 1 ? '' : 's');
+  }
+
+  function recomputeGscTotals(store) {
+    if (store.labels.length) {
+      var c = store.series.clicks.reduce(function (a, b) { return a + b; }, 0);
+      var i = store.series.impressions.reduce(function (a, b) { return a + b; }, 0);
+      store.totals.clicks = c;
+      store.totals.impressions = i;
+      store.totals.ctr = i ? c / i * 100 : 0;
+    } else {
+      var src = null, keys = ['query', 'page', 'country', 'device'];
+      for (var n = 0; n < keys.length; n++) if (store.rows[keys[n]].length) { src = store.rows[keys[n]]; break; }
+      if (src) {
+        store.totals.clicks = src.reduce(function (a, r) { return a + r.clicks; }, 0);
+        store.totals.impressions = src.reduce(function (a, r) { return a + r.impressions; }, 0);
+        store.totals.ctr = store.totals.impressions ? store.totals.clicks / store.totals.impressions * 100 : 0;
+      }
+    }
+    // Average position is impression-weighted wherever a position column exists.
+    var pool = store.rows.query.length ? store.rows.query : store.rows.page;
+    var wi = 0, wp = 0;
+    pool.forEach(function (r) { if (r.position) { wp += r.position * r.impressions; wi += r.impressions; } });
+    store.totals.position = wi ? wp / wi : (store.totals.position || 0);
+  }
+
+  /* ── GA4 files ────────────────────────────────────────────── */
+  var GA4_KINDS = [
+    { key: 'date',    label: 'Dates',         re: /^(date|nth day|day index)$/i },
+    { key: 'channel', label: 'Channels',      re: /channel/i },
+    { key: 'landing', label: 'Landing pages', re: /landing page|page path|page title|page and screen/i },
+    { key: 'device',  label: 'Devices',       re: /device/i },
+    { key: 'country', label: 'Countries',     re: /countr/i }
+  ];
+
+  function importGa4Csv(text, filename) {
+    var rows = parseCsv(text);
+    var h = findHeader(rows);
+    if (h < 0) throw new Error('No header row found in ' + filename + '.');
+    var header = rows[h].map(function (c) { return String(c).trim(); });
+    var iSess = colIndex(header, /^sessions$|^sessions\b/i);
+    var iUsers = colIndex(header, /active users|total users|^users$/i);
+    var iEng = colIndex(header, /engaged sessions/i);
+    var iRate = colIndex(header, /engagement rate/i);
+    var iConv = colIndex(header, /key events|conversions/i);
+    if (iSess < 0 && iUsers < 0) throw new Error(filename + ' has no Sessions or Users column.');
+
+    var kind = null;
+    for (var k = 0; k < GA4_KINDS.length; k++) {
+      if (GA4_KINDS[k].re.test(header[0]) || GA4_KINDS[k].re.test(filename)) { kind = GA4_KINDS[k]; break; }
+    }
+    if (!kind) kind = { key: 'channel', label: 'Rows (read as ' + header[0] + ')', re: null };
+
+    var body = rows.slice(h + 1).filter(function (r) { return String(r[0]).trim() && String(r[0]).charAt(0) !== '#'; });
+    var store = importStore(ga4, 'ga4');
+
+    if (kind.key === 'date') {
+      var dated = body.map(function (r) {
+        return { d: normDate(r[0]),
+                 sessions: iSess > -1 ? num(r[iSess]) : 0,
+                 users: iUsers > -1 ? num(r[iUsers]) : 0,
+                 engaged: iEng > -1 ? num(r[iEng]) : 0 };
+      }).sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+      store.labels = dated.map(function (r) { return r.d; });
+      store.series.sessions = dated.map(function (r) { return r.sessions; });
+      store.series.users = dated.map(function (r) { return r.users; });
+      store.series.engaged = dated.map(function (r) { return r.engaged; });
+    } else {
+      store.rows[kind.key] = body.map(function (r) {
+        var sessions = iSess > -1 ? num(r[iSess]) : 0;
+        var eng = iEng > -1 ? num(r[iEng]) : 0;
+        var rate = iRate > -1 ? num(r[iRate]) : (sessions ? eng / sessions * 100 : 0);
+        // GA4 writes engagement rate as a fraction in CSV exports.
+        if (rate > 0 && rate <= 1) rate *= 100;
+        return {
+          key: String(r[0]).trim(),
+          sessions: sessions,
+          users: iUsers > -1 ? num(r[iUsers]) : 0,
+          engagement: rate,
+          conversions: iConv > -1 ? num(r[iConv]) : 0
+        };
+      }).sort(function (a, b) { return b.sessions - a.sessions; });
+    }
+    recomputeGa4Totals(store);
+    store.loaded[kind.key] = body.length;
+    return kind.label + ' — ' + body.length + ' row' + (body.length === 1 ? '' : 's');
+  }
+
+  function recomputeGa4Totals(store) {
+    var sum = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
+    if (store.labels.length) {
+      store.totals.sessions = sum(store.series.sessions);
+      store.totals.users = sum(store.series.users);
+      store.totals.engaged = sum(store.series.engaged);
+    } else {
+      var src = null, keys = ['channel', 'landing', 'device', 'country'];
+      for (var n = 0; n < keys.length; n++) if (store.rows[keys[n]].length) { src = store.rows[keys[n]]; break; }
+      if (src) {
+        store.totals.sessions = sum(src.map(function (r) { return r.sessions; }));
+        store.totals.users = sum(src.map(function (r) { return r.users; }));
+        store.totals.engaged = sum(src.map(function (r) { return r.sessions * r.engagement / 100; }));
+      }
+    }
+    store.totals.rate = store.totals.sessions ? store.totals.engaged / store.totals.sessions * 100 : 0;
+  }
+
+  function importStore(state, kind) {
+    if (!state.data || state.data.source !== 'import') {
+      state.data = {
+        sample: false, source: 'import', labels: [], loaded: {},
+        series: kind === 'gsc' ? { clicks: [], impressions: [] } : { sessions: [], users: [], engaged: [] },
+        totals: {},
+        rows: kind === 'gsc'
+          ? { query: [], page: [], country: [], device: [] }
+          : { channel: [], landing: [], device: [], country: [] }
+      };
+    }
+    return state.data;
+  }
+
+  function renderImportStatus(kind) {
+    var state = kind === 'gsc' ? gsc : ga4;
+    var host = $(kind + 'ImportStatus');
+    var pill = $(kind + 'ImportPill');
+    host.innerHTML = '';
+    var loaded = (state.data && state.data.source === 'import' && state.data.loaded) || {};
+    var keys = Object.keys(loaded);
+    if (!keys.length) {
+      setPill(pill, 'off', 'Nothing imported');
+      return;
+    }
+    setPill(pill, 'ok', keys.length + ' file' + (keys.length === 1 ? '' : 's') + ' loaded');
+    var labels = (kind === 'gsc' ? GSC_KINDS : GA4_KINDS);
+    keys.forEach(function (k) {
+      var def = labels.filter(function (d) { return d.key === k; })[0];
+      var row = document.createElement('div');
+      row.className = 'import-row';
+      row.innerHTML = '<span class="ok">&#10003;</span><span class="name"></span><span class="grow"></span><span></span>';
+      row.children[1].textContent = def ? def.label : k;
+      row.lastChild.textContent = loaded[k] + ' rows';
+      host.appendChild(row);
+    });
+    if (!state.data.labels.length) {
+      var note = document.createElement('div');
+      note.className = 'import-row';
+      note.style.color = 'var(--ink-3)';
+      note.textContent = 'Add the Dates export to plot the trend line.';
+      host.appendChild(note);
+    }
+  }
+
+  function wireImport(kind, importer) {
+    var drop = $(kind + 'Drop');
+    var input = $(kind + 'File');
+    var state = kind === 'gsc' ? gsc : ga4;
+    var rerender = kind === 'gsc' ? renderGsc : renderGa4;
+
+    function ingest(text, name) {
+      try {
+        var msg = importer(text, name);
+        $(kind + 'Sample').checked = false;
+        renderImportStatus(kind);
+        rerender();
+        toast(name + ': ' + msg);
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+
+    function readFiles(files) {
+      Array.prototype.slice.call(files).forEach(function (f) {
+        var r = new FileReader();
+        r.onload = function () { ingest(String(r.result), f.name); };
+        r.onerror = function () { toast('Could not read ' + f.name + '.'); };
+        r.readAsText(f);
+      });
+    }
+
+    $(kind + 'FileBtn').addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function () { readFiles(input.files); input.value = ''; });
+
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('is-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('is-over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) readFiles(e.dataTransfer.files);
+    });
+
+    $(kind + 'PasteBtn').addEventListener('click', function () {
+      var txt = $(kind + 'Paste').value.trim();
+      if (!txt) { say(kind + 'PasteOut', 'Paste the CSV text first.', 'err'); return; }
+      say(kind + 'PasteOut', '');
+      ingest(txt, 'pasted text');
+    });
+
+    $(kind + 'ImportClear').addEventListener('click', function () {
+      state.data = null;
+      $(kind + 'Sample').checked = true;
+      renderImportStatus(kind);
+      rerender();
+      toast('Imported data cleared — back to sample.');
+    });
+  }
+
   /* ── Shared renderers ─────────────────────────────────────── */
   function renderKpis(host, defs, activeKey, onPick) {
     host.innerHTML = '';
@@ -2425,6 +2826,11 @@
   function plot(hostId, labels, values, label, fmt) {
     var host = $(hostId);
     if (!host) return;
+    if (!labels || !labels.length || !values || !values.length) {
+      host.innerHTML = '<p style="color:var(--ink-3);font-size:12.5px;margin:0;padding:22px 0;text-align:center">' +
+        'No day-by-day figures loaded, so there is no trend to plot. Import the Dates export to fill this in.</p>';
+      return;
+    }
     var hi = niceMax(Math.max.apply(null, values) || 1);
     areaChart(host, {
       values: values,
@@ -2452,12 +2858,13 @@
 
   function renderGsc() {
     gscRefreshChrome();
-    var d = gsc.data || ($('gscSample').checked ? gscSample(parseInt($('gscRange').value, 10)) : null);
-    gsc.data = d;
+    var showSample = $('gscSample').checked;
+    var d = showSample ? gscSample(parseInt($('gscRange').value, 10)) : gsc.data;
     $('gscFlag').hidden = !(d && d.sample);
     if (!d) {
-      $('gscKpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0">' +
-        'No data loaded. Tick “Show sample data” to preview the layout, or connect and hit Fetch from API.</p>';
+      $('gscKpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0;grid-column:1/-1">' +
+        'Nothing loaded. Import a Search Console CSV above, tick “Show sample data” to preview the layout, ' +
+        'or connect and fetch from the API.</p>';
       $('gscChart').innerHTML = '';
       renderTable($('gscTable'), [{ key: 'key', label: 'Query' }, { key: 'clicks', label: 'Clicks' }], [], 'Nothing loaded yet.');
       return;
@@ -2554,12 +2961,13 @@
 
   function renderGa4() {
     ga4RefreshChrome();
-    var d = ga4.data || ($('ga4Sample').checked ? ga4Sample(parseInt($('ga4Range').value, 10)) : null);
-    ga4.data = d;
+    var showSample = $('ga4Sample').checked;
+    var d = showSample ? ga4Sample(parseInt($('ga4Range').value, 10)) : ga4.data;
     $('ga4Flag').hidden = !(d && d.sample);
     if (!d) {
-      $('ga4Kpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0">' +
-        'No data loaded. Tick “Show sample data” to preview the layout, or connect and hit Fetch from API.</p>';
+      $('ga4Kpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0;grid-column:1/-1">' +
+        'Nothing loaded. Import a GA4 CSV above, tick “Show sample data” to preview the layout, ' +
+        'or connect and fetch from the API.</p>';
       $('ga4Chart').innerHTML = '';
       renderTable($('ga4Table'), [{ key: 'key', label: 'Channel' }, { key: 'sessions', label: 'Sessions' }], [], 'Nothing loaded yet.');
       return;
@@ -2671,11 +3079,13 @@
     bar.setAttribute('data-tone', 'warn');
     bar.style.marginBottom = '14px';
     bar.innerHTML = '<span class="note-glyph">!</span><span>' +
-      '<strong>Google sign-in cannot complete here.</strong> ' + why +
-      ' Serve the file and open it directly:<br>' +
-      '<code style="display:inline-block;margin:6px 0">cd dashboard &amp;&amp; python3 -m http.server 8080</code><br>' +
-      'then open <code>http://localhost:8080/index.html</code> and register that same URL on the OAuth client as both an ' +
-      'authorized JavaScript origin and a redirect URI. Everything else on this screen still saves normally.' +
+      '<strong>Google sign-in cannot run here — use the CSV import instead.</strong> ' + why +
+      ' Reading a file needs no network, so the <b>Import an export</b> panel on the ' +
+      '<a href="#" data-goto="gsc">Search Console</a> and <a href="#" data-goto="ga4">Analytics</a> screens works ' +
+      'perfectly in this preview and gives you the same real numbers.<br><br>' +
+      'The API route only matters if you want scheduled refreshes. That needs the page served from a real origin ' +
+      '(<code>python3 -m http.server 8080</code> in the <code>dashboard</code> folder), with that URL registered on the ' +
+      'OAuth client. Everything on this screen still saves either way.' +
       '</span>';
     host.appendChild(bar);
   }
@@ -2836,11 +3246,19 @@
       }).catch(function (e) { say('ga4TestOut', e.message, 'err'); });
     });
 
+    // Imported data survives a range or sample toggle; API results do not,
+    // since the range is part of the request.
     ['gscRange', 'gscSample'].forEach(function (id) {
-      $(id).addEventListener('change', function () { gsc.data = null; renderGsc(); });
+      $(id).addEventListener('change', function () {
+        if (gsc.data && gsc.data.source !== 'import') gsc.data = null;
+        renderGsc();
+      });
     });
     ['ga4Range', 'ga4Sample'].forEach(function (id) {
-      $(id).addEventListener('change', function () { ga4.data = null; renderGa4(); });
+      $(id).addEventListener('change', function () {
+        if (ga4.data && ga4.data.source !== 'import') ga4.data = null;
+        renderGa4();
+      });
     });
     $('gscFetch').addEventListener('click', gscFetch);
     $('ga4Fetch').addEventListener('click', ga4Fetch);
@@ -2971,6 +3389,10 @@
   });
 
   wireConnections();
+  wireImport('gsc', importGscCsv);
+  wireImport('ga4', importGa4Csv);
+  renderImportStatus('gsc');
+  renderImportStatus('ga4');
   fillForm();
 
   // Charts are sized from their host, so a resize needs a redraw.
