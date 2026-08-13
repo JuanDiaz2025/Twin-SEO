@@ -1,0 +1,1696 @@
+<title>Twin SEO Console</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     Tokens — light is the base set; dark redefines tokens only,
+     under both the OS media query and the explicit theme stamp.
+     ───────────────────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+
+    --plane:        #eef1f1;   /* app background, teal-biased neutral */
+    --rail:         #0c1618;
+    --rail-ink:     #8fa3a6;
+    --rail-ink-on:  #ffffff;
+    --surface:      #ffffff;   /* card / chart surface */
+    --surface-sub:  #f5f8f8;
+    --hairline:     #dde4e4;
+    --hairline-soft:#e9eeee;
+
+    --ink:          #0c1618;
+    --ink-2:        #4c5c5f;
+    --ink-3:        #7c8c8f;
+
+    --accent:       #057d87;
+    --accent-deep:  #02383d;
+    --accent-wash:  #e6f2f3;
+    --accent-line:  #057d87;
+
+    --good:         #0ca30c;
+    --good-text:    #006300;
+    --warning:      #fab219;
+    --serious:      #ec835a;
+    --critical:     #d03b3b;
+    --critical-text:#b02c2c;
+
+    --grid:         #e1e6e6;
+    --baseline:     #c6d0d1;
+
+    /* validated ordinal teal ramp — light mode (7 steps, dark→light) */
+    --r1: #02383d; --r2: #024e54; --r3: #03656d; --r4: #057d87;
+    --r5: #0c96a2; --r6: #4aacb6; --r7: #77c1ca;
+
+    --ring: rgba(12,22,24,.10);
+    --shadow: 0 1px 2px rgba(12,22,24,.05), 0 1px 1px rgba(12,22,24,.03);
+
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+
+    --rail-w: 56px;
+    --nav-w: 232px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:        #0a0f10;
+      --rail:         #070b0c;
+      --rail-ink:     #7f9295;
+      --rail-ink-on:  #ffffff;
+      --surface:      #131a1c;
+      --surface-sub:  #182123;
+      --hairline:     #243033;
+      --hairline-soft:#1d2729;
+
+      --ink:          #e8efef;
+      --ink-2:        #9fb0b2;
+      --ink-3:        #7c8c8f;
+
+      --accent:       #259ca7;
+      --accent-deep:  #a2d7dd;
+      --accent-wash:  #12292c;
+      --accent-line:  #3fb3be;
+
+      --good-text:    #0ca30c;
+      --critical-text:#e46a6a;
+
+      --grid:         #202b2d;
+      --baseline:     #2c393c;
+
+      /* same hue, re-stepped for the dark surface */
+      --r1: #a2d7dd; --r2: #7ac4cd; --r3: #52b0bb; --r4: #259ca7;
+      --r5: #088690; --r6: #026f78; --r7: #025961;
+
+      --ring: rgba(255,255,255,.10);
+      --shadow: none;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:        #0a0f10;
+    --rail:         #070b0c;
+    --rail-ink:     #7f9295;
+    --rail-ink-on:  #ffffff;
+    --surface:      #131a1c;
+    --surface-sub:  #182123;
+    --hairline:     #243033;
+    --hairline-soft:#1d2729;
+
+    --ink:          #e8efef;
+    --ink-2:        #9fb0b2;
+    --ink-3:        #7c8c8f;
+
+    --accent:       #259ca7;
+    --accent-deep:  #a2d7dd;
+    --accent-wash:  #12292c;
+    --accent-line:  #3fb3be;
+
+    --good-text:    #0ca30c;
+    --critical-text:#e46a6a;
+
+    --grid:         #202b2d;
+    --baseline:     #2c393c;
+
+    --r1: #a2d7dd; --r2: #7ac4cd; --r3: #52b0bb; --r4: #259ca7;
+    --r5: #088690; --r6: #026f78; --r7: #025961;
+
+    --ring: rgba(255,255,255,.10);
+    --shadow: none;
+  }
+
+  /* ── Base ─────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { margin: 0; text-wrap: balance; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 3px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── Shell ────────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: var(--rail-w) var(--nav-w) minmax(0, 1fr);
+    min-height: 100vh;
+    /* paints the rail and nav columns for the full document height, so the
+       sticky columns never end mid-scroll */
+    background-image: linear-gradient(
+      to right,
+      var(--rail) 0, var(--rail) var(--rail-w),
+      var(--surface) var(--rail-w), var(--surface) calc(var(--rail-w) + var(--nav-w) - 1px),
+      var(--hairline) calc(var(--rail-w) + var(--nav-w) - 1px), var(--hairline) calc(var(--rail-w) + var(--nav-w)),
+      transparent calc(var(--rail-w) + var(--nav-w))
+    );
+  }
+  .app[data-nav="closed"] { --nav-w: 0px; }
+
+  /* Icon rail */
+  .rail {
+    grid-column: 1;
+    background: var(--rail);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 0 20px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .mark {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 13px;
+    letter-spacing: -.02em;
+    margin-bottom: 12px;
+    flex: none;
+  }
+  .rail-btn {
+    width: 46px;
+    padding: 7px 0 5px;
+    border-radius: 8px;
+    color: var(--rail-ink);
+    display: grid; justify-items: center; gap: 3px;
+    flex: none;
+  }
+  .rail-btn svg { width: 19px; height: 19px; }
+  .rail-btn span {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .rail-btn:hover { color: var(--rail-ink-on); background: rgba(255,255,255,.06); }
+  .rail-btn[aria-current="true"] {
+    color: var(--rail-ink-on);
+    background: rgba(255,255,255,.10);
+    box-shadow: inset 2px 0 0 var(--accent-line);
+  }
+
+  /* Nav column */
+  .nav {
+    grid-column: 2;
+    background: var(--surface);
+    border-right: 1px solid var(--hairline);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden auto;
+    padding: 14px 0 32px;
+  }
+  .app[data-nav="closed"] .nav { display: none; }
+  .nav-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px; padding: 0 14px 10px;
+  }
+  .nav-head h2 { font-size: 15px; letter-spacing: -.01em; }
+  .nav-collapse { color: var(--ink-3); font-size: 15px; line-height: 1; padding: 2px 4px; }
+  .nav-collapse:hover { color: var(--ink); }
+  .nav-group { padding: 6px 8px 2px; }
+  .nav-group > .eyebrow { padding: 6px 6px 4px; display: block; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+  .nav-item[hidden], .nav-group[hidden] { display: none; }
+  .nav-item:hover { background: var(--surface-sub); color: var(--ink); }
+  .nav-item[aria-current="true"] {
+    background: var(--accent-wash);
+    color: var(--accent-deep);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent-line);
+  }
+  .nav-item .dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent-line);
+    opacity: 0; flex: none;
+  }
+  .nav-item[data-target] .dot { opacity: .5; }
+  .nav-empty { padding: 10px 14px; color: var(--ink-3); font-size: 12.5px; }
+  .nav-sep { height: 1px; background: var(--hairline-soft); margin: 8px 14px; }
+
+  /* ── Topbar ───────────────────────────────────────────────── */
+  .main { grid-column: 3; min-width: 0; }
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .topbar-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 9px 22px;
+    flex-wrap: wrap;
+  }
+  .search {
+    display: flex; align-items: center; gap: 7px;
+    background: var(--surface-sub);
+    border: 1px solid var(--hairline);
+    border-radius: 7px;
+    padding: 5px 9px;
+    min-width: 220px;
+    color: var(--ink-3);
+  }
+  .search input {
+    border: 0; background: none; color: var(--ink);
+    font: inherit; font-size: 13px; width: 100%;
+  }
+  .search input:focus { outline: none; }
+  .search svg { width: 14px; height: 14px; flex: none; }
+  .top-spacer { flex: 1 1 auto; }
+  .top-link { color: var(--ink-2); font-size: 13px; }
+  .top-link:hover { color: var(--ink); }
+
+  .title-row {
+    display: flex; align-items: flex-end; gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 22px 14px;
+    border-top: 1px solid var(--hairline-soft);
+  }
+  .crumbs { display: flex; gap: 6px; align-items: center; margin-bottom: 3px; }
+  .crumbs .eyebrow { color: var(--ink-3); }
+  h1 { font-size: 21px; letter-spacing: -.02em; }
+  h1 .domain { color: var(--accent); }
+  .title-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+  .btn {
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    border-radius: 7px;
+    padding: 6px 11px;
+    font-size: 13px;
+    color: var(--ink);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--baseline); background: var(--surface-sub); }
+  .btn-primary {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+
+  .snapshot-strip {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 22px;
+    background: var(--accent-wash);
+    border-bottom: 1px solid var(--hairline);
+    color: var(--ink-2);
+    font-size: 12.5px;
+  }
+  .snapshot-strip strong { color: var(--ink); font-weight: 600; }
+  .phase-tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    background: var(--accent); color: #fff;
+    padding: 3px 7px; border-radius: 4px;
+  }
+
+  /* ── Canvas & widgets ─────────────────────────────────────── */
+  .canvas { padding: 18px 22px 40px; display: grid; gap: 14px; }
+  .cluster { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .cluster-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr); }
+  .col { display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; align-items: start; }
+
+  .w {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    min-width: 0;
+  }
+  .w[hidden] { display: none; }
+  .w.flash { box-shadow: 0 0 0 2px var(--accent-line); }
+  .w-head {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 11px 13px 9px;
+    border-bottom: 1px solid var(--hairline-soft);
+    flex-wrap: nowrap;
+  }
+  .w-head h3 { font-size: 13.5px; letter-spacing: -.01em; flex: 0 1 auto; min-width: 0; }
+  .w-head .info {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid var(--baseline); color: var(--ink-3);
+    font-size: 9px; display: grid; place-items: center; flex: none;
+    cursor: help; margin-top: 3px;
+  }
+  .w-tools {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap; justify-content: flex-end; min-width: 0;
+  }
+  .chip {
+    font-size: 11.5px; color: var(--ink-2);
+    background: var(--surface-sub);
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    padding: 2px 6px;
+    display: inline-flex; align-items: center; gap: 4px;
+    cursor: default; white-space: nowrap;
+  }
+  .chip .caret { color: var(--ink-3); font-size: 8px; }
+  .w-close { color: var(--ink-3); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 4px; }
+  .w-close:hover { color: var(--critical-text); background: var(--surface-sub); }
+  .w-body { padding: 12px 13px 14px; }
+  .w-foot {
+    padding: 0 13px 13px;
+  }
+  .w-sub { color: var(--ink-2); font-size: 12.5px; padding: 0 13px 10px; margin-top: -2px; }
+
+  /* Metric grids */
+  .metrics { display: grid; gap: 12px 18px; }
+  .metrics-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .metric { display: grid; gap: 2px; align-content: start; }
+  .metric-label { display: flex; align-items: center; gap: 5px; }
+  .metric-val {
+    display: flex; align-items: baseline; gap: 7px;
+    font-size: 25px; font-weight: 650; letter-spacing: -.02em;
+  }
+  .metric-val small { font-size: 12px; font-weight: 600; letter-spacing: 0; }
+  .up { color: var(--good-text); }
+  .down { color: var(--critical-text); }
+  .flat { color: var(--ink-3); }
+  .metric-note { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 5px; }
+  .metric-spark { margin-top: 2px; }
+
+  .divider { height: 1px; background: var(--hairline-soft); }
+  .vdivide { border-left: 1px solid var(--hairline-soft); padding-left: 18px; }
+
+  /* AI engine table */
+  .engines { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .engines th, .engines td { text-align: right; padding: 5px 0; font-size: 12.5px; }
+  .engines th { color: var(--ink-3); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 400; }
+  .engines th:first-child, .engines td:first-child { text-align: left; }
+  .engines tbody tr + tr td { border-top: 1px solid var(--hairline-soft); }
+  .engine-name { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .engine-glyph {
+    width: 16px; height: 16px; border-radius: 4px;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    background: var(--accent-wash); color: var(--accent-deep);
+    flex: none;
+  }
+
+  /* Ring + legend */
+  .ring-wrap { display: grid; grid-template-columns: 132px minmax(0,1fr); gap: 14px; align-items: center; }
+  .ring-center { text-align: center; }
+  .ring-total { font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+  .legend { display: grid; gap: 1px; }
+  .legend-row {
+    display: grid; grid-template-columns: 10px minmax(0,1fr) auto;
+    gap: 8px; align-items: center;
+    padding: 3px 4px; border-radius: 4px;
+    font-size: 12.5px;
+  }
+  .legend-row:hover { background: var(--surface-sub); }
+  .legend-row.is-zero { color: var(--ink-3); }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; }
+  .legend-val { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .legend-row.is-active { background: var(--accent-wash); }
+
+  /* Top pages list */
+  .rows { display: grid; gap: 0; }
+  .row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; font-size: 12.5px;
+    border-top: 1px solid var(--hairline-soft);
+  }
+  .row .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .grow a { text-decoration: none; }
+  .row .grow a:hover { text-decoration: underline; }
+  .row .val { color: var(--ink-2); font-variant-numeric: tabular-nums; flex: none; }
+
+  /* Toxicity */
+  .tox-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .tox-score { font-size: 21px; font-weight: 650; letter-spacing: -.02em; color: var(--warning); }
+  :root[data-theme="dark"] .tox-score { color: var(--warning); }
+  .tox-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 8px; }
+  .tox-item { display: grid; gap: 1px; }
+  .tox-item .n { font-size: 19px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .tox-item .l { font-size: 11.5px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+  .tox-item .l .swatch { width: 8px; height: 8px; }
+
+  /* Toxic backlinks table */
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th {
+    text-align: left; font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 400;
+    padding: 0 0 6px; border-bottom: 1px solid var(--hairline);
+  }
+  .tbl th:last-child, .tbl td:last-child { text-align: right; }
+  .tbl td { padding: 6px 0; font-size: 12.5px; border-bottom: 1px solid var(--hairline-soft); }
+  .tbl td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbl td:first-child span { color: var(--ink-2); }
+  .score-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .score-100 { color: var(--critical-text); }
+
+  .sub-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+  .fact { display: grid; gap: 3px; }
+  .fact .n { font-size: 21px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .fact-rows { display: grid; gap: 2px; margin-top: 4px; }
+  .fact-row { display: flex; gap: 8px; font-size: 12px; color: var(--ink-2); }
+  .fact-row .k { flex: 1 1 auto; }
+  .fact-row .v { font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  /* Charts */
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .tick { font-family: var(--mono); font-size: 9px; fill: var(--ink-3); letter-spacing: .04em; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axis { stroke: var(--baseline); stroke-width: 1; }
+  .tip {
+    position: absolute; z-index: 5; pointer-events: none;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline);
+    box-shadow: 0 4px 14px rgba(12,22,24,.14);
+    border-radius: 7px; padding: 7px 9px;
+    font-size: 12px; min-width: 96px;
+    opacity: 0; transform: translate(-50%, -108%);
+    transition: opacity .1s linear;
+  }
+  .tip[data-on="1"] { opacity: 1; }
+  .tip .tip-k { font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .tip .tip-v { font-weight: 650; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+  .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-legend i { width: 8px; height: 8px; border-radius: 50%; display: block; }
+
+  /* Authority distribution */
+  .dist { display: grid; gap: 5px; }
+  .dist-row { display: grid; grid-template-columns: 46px minmax(0,1fr) 46px 26px; gap: 8px; align-items: center; font-size: 12px; }
+  .dist-row .band { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .dist-track { display: block; height: 9px; background: var(--surface-sub); border-radius: 4px; overflow: hidden; }
+  .dist-fill { display: block; height: 100%; border-radius: 4px; min-width: 3px; }
+  .dist-row .pct, .dist-row .ct { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-2); }
+  .dist-row .ct { color: var(--ink); }
+
+  /* Empty / connect states */
+  .empty {
+    display: grid; place-items: center; gap: 8px;
+    padding: 34px 16px; text-align: center;
+    background: var(--surface-sub);
+    border: 1px dashed var(--hairline);
+    border-radius: 8px;
+  }
+  .empty h4 { font-size: 13.5px; }
+  .empty p { margin: 0; font-size: 12.5px; color: var(--ink-2); max-width: 46ch; }
+  .empty-glyph { color: var(--ink-3); }
+  .connect {
+    display: grid; grid-template-columns: 168px minmax(0,1fr); gap: 18px; align-items: center;
+  }
+  .connect-art {
+    aspect-ratio: 4 / 3; border-radius: 8px;
+    background: var(--surface-sub); border: 1px solid var(--hairline);
+    display: grid; place-items: center;
+  }
+
+  /* Hidden widgets tray */
+  .tray-items { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tray-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--hairline); border-radius: 7px;
+    padding: 6px 10px; font-size: 12.5px;
+    background: var(--surface-sub);
+  }
+  .tray-chip .restore { color: var(--accent); font-weight: 600; }
+  .tray-chip .restore:hover { text-decoration: underline; }
+  .tray-empty { color: var(--ink-3); font-size: 12.5px; }
+
+  .foot-note {
+    color: var(--ink-3); font-size: 12px; padding: 4px 2px 0;
+    max-width: 92ch;
+  }
+
+  /* Nav toggle for narrow screens */
+  .nav-open-btn { display: none; }
+
+  @media (max-width: 1180px) {
+    .cluster, .cluster-top { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 900px) {
+    .app {
+      grid-template-columns: var(--rail-w) minmax(0, 1fr);
+      background-image: linear-gradient(to right, var(--rail) 0, var(--rail) var(--rail-w), transparent var(--rail-w));
+    }
+    .nav {
+      position: fixed; top: 0; left: var(--rail-w); bottom: 0;
+      width: 260px; z-index: 40; height: 100vh;
+      box-shadow: 0 8px 40px rgba(12,22,24,.28);
+    }
+    .app[data-nav="closed"] .nav { display: none; }
+    .main { grid-column: 2; }
+    .nav-open-btn { display: inline-flex; }
+    .pair, .sub-grid { grid-template-columns: minmax(0,1fr); }
+    .connect { grid-template-columns: minmax(0,1fr); }
+    .connect-art { max-width: 220px; }
+  }
+  @media (max-width: 620px) {
+    .metrics-3 { grid-template-columns: minmax(0,1fr); }
+    .vdivide { border-left: 0; padding-left: 0; }
+    .ring-wrap { grid-template-columns: minmax(0,1fr); justify-items: center; }
+    .canvas, .topbar-row, .title-row, .snapshot-strip { padding-left: 14px; padding-right: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+
+<div class="app" id="app" data-nav="open">
+
+  <!-- ── Icon rail ────────────────────────────────────────── -->
+  <nav class="rail" aria-label="Workspaces">
+    <div class="mark" aria-hidden="true">TH</div>
+    <button class="rail-btn" data-space="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
+    <button class="rail-btn" data-space="SEO" aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/><path d="M8.5 12l2 2 3.5-4"/></svg><span>SEO</span></button>
+    <button class="rail-btn" data-space="AI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15l-1.8-4.2L5.5 9l4.7-1.3z"/><path d="M17.5 16l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg><span>AI</span></button>
+    <button class="rail-btn" data-space="Traffic &amp; Market"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg><span>Traffic</span></button>
+    <button class="rail-btn" data-space="Local"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 21s6-5.3 6-10a6 6 0 1 0-12 0c0 4.7 6 10 6 10z"/><circle cx="12" cy="11" r="2.2"/></svg><span>Local</span></button>
+    <button class="rail-btn" data-space="Advertising"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 10v4h3l5 3.5V6.5L7 10z"/><path d="M16.5 9.5a4 4 0 0 1 0 5"/></svg><span>Ad</span></button>
+    <button class="rail-btn" data-space="Content"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg><span>Content</span></button>
+    <button class="rail-btn" data-space="AI PR"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 8h9l4-3v14l-4-3H5z"/><path d="M8 11h4"/></svg><span>AI PR</span></button>
+    <button class="rail-btn" data-space="Social"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7" cy="12" r="2.4"/><circle cx="17" cy="6.5" r="2.4"/><circle cx="17" cy="17.5" r="2.4"/><path d="m9.2 10.8 5.6-3M9.2 13.2l5.6 3"/></svg><span>Social</span></button>
+    <button class="rail-btn" data-space="Reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 15v-3m3 3V9m3 6v-4"/></svg><span>Reports</span></button>
+    <button class="rail-btn" data-space="App Center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="4.5" width="6" height="6" rx="1.5"/><rect x="13.5" y="4.5" width="6" height="6" rx="1.5"/><rect x="4.5" y="13.5" width="6" height="6" rx="1.5"/><rect x="13.5" y="13.5" width="6" height="6" rx="1.5"/></svg><span>Apps</span></button>
+  </nav>
+
+  <!-- ── Nav column ───────────────────────────────────────── -->
+  <nav class="nav" id="nav" aria-label="SEO tools">
+    <div class="nav-head">
+      <h2 id="spaceTitle">SEO</h2>
+      <button class="nav-collapse" id="navCollapse" aria-label="Collapse menu" title="Collapse menu">&#171;</button>
+    </div>
+    <div id="navBody">
+      <div class="nav-group">
+        <button class="nav-item" aria-current="true" data-target="w-seo"><span class="dot"></span>Dashboard</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Site Performance</span>
+        <button class="nav-item" data-target="w-siteaudit"><span class="dot"></span>Site Audit</button>
+        <button class="nav-item" data-target="w-position"><span class="dot"></span>Position Tracking</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Competitive Analysis</span>
+        <button class="nav-item" data-target="w-seo"><span class="dot"></span>Domain Overview</button>
+        <button class="nav-item" data-target="w-rankings"><span class="dot"></span>Organic Rankings</button>
+        <button class="nav-item"><span class="dot"></span>Compare Domains</button>
+        <button class="nav-item"><span class="dot"></span>Top Pages</button>
+        <button class="nav-item"><span class="dot"></span>Keyword Gap</button>
+        <button class="nav-item"><span class="dot"></span>Backlink Gap</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Keyword Research</span>
+        <button class="nav-item"><span class="dot"></span>Keyword Overview</button>
+        <button class="nav-item"><span class="dot"></span>Keyword Magic Tool</button>
+        <button class="nav-item"><span class="dot"></span>Keyword Strategy Builder</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Content Ideas</span>
+        <button class="nav-item"><span class="dot"></span>SEO Writing Assistant</button>
+        <button class="nav-item"><span class="dot"></span>Topic Research</button>
+        <button class="nav-item"><span class="dot"></span>SEO Content Template</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Link Building</span>
+        <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Backlinks</button>
+        <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Referring Domains</button>
+        <button class="nav-item" data-target="w-audit"><span class="dot"></span>Backlink Audit</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Extras</span>
+        <button class="nav-item"><span class="dot"></span>Sensor</button>
+        <button class="nav-item"><span class="dot"></span>SEOquake</button>
+        <button class="nav-item"><span class="dot"></span>Semrush Rank</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Other</span>
+        <button class="nav-item" data-target="w-onpage"><span class="dot"></span>On Page SEO Checker</button>
+        <button class="nav-item" data-target="w-oti"><span class="dot"></span>Organic Traffic Insights</button>
+        <button class="nav-item" data-target="w-linkbuilding"><span class="dot"></span>Link Building</button>
+        <button class="nav-item" data-target="w-listing"><span class="dot"></span>Listing Management</button>
+        <button class="nav-item" data-target="w-aisearch"><span class="dot"></span>AI Search</button>
+      </div>
+      <div class="nav-sep"></div>
+      <div class="nav-group">
+        <p class="nav-empty" id="navHint">Items with a dot jump to their widget on the dashboard.</p>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main ─────────────────────────────────────────────── -->
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-row">
+        <button class="btn nav-open-btn" id="navOpen">Menu</button>
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
+          <input id="toolSearch" type="search" placeholder="Go to tool…" aria-label="Filter tools in the menu" autocomplete="off">
+        </label>
+        <div class="top-spacer"></div>
+        <a class="top-link" href="#hidden">Hidden widgets</a>
+        <span class="chip">Bryan C. <span class="caret">&#9660;</span></span>
+      </div>
+      <div class="title-row">
+        <div>
+          <div class="crumbs">
+            <span class="eyebrow">Home</span><span class="eyebrow">/</span><span class="eyebrow">SEO</span>
+          </div>
+          <h1>SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span></h1>
+        </div>
+        <div class="title-actions">
+          <button class="btn">Share</button>
+          <button class="btn btn-primary">+ Create SEO project</button>
+        </div>
+      </div>
+      <div class="snapshot-strip">
+        <span class="phase-tag">Phase 1</span>
+        <span>Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.</span>
+      </div>
+    </header>
+
+    <main class="canvas">
+
+      <!-- Row 1: AI Search + SEO overview -->
+      <div class="cluster cluster-top">
+        <section class="w" id="w-aisearch">
+          <div class="w-head">
+            <h3>AI Search</h3>
+            <span class="info" title="Brand visibility across AI answer engines">i</span>
+            <div class="w-tools">
+              <span class="chip">United States <span class="caret">&#9660;</span></span>
+              <button class="w-close" data-hide="w-aisearch" aria-label="Hide AI Search">&#10005;</button>
+            </div>
+          </div>
+          <div class="w-body">
+            <div class="metrics metrics-3">
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">AI Visibility</span></div>
+                <div class="metric-val num" style="color:var(--accent)">22</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Mentions</span></div>
+                <div class="metric-val num">10</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Cited Pages</span></div>
+                <div class="metric-val num">10</div>
+              </div>
+            </div>
+            <table class="engines">
+              <thead><tr><th scope="col">Engine</th><th scope="col">Mentions</th><th scope="col">Cited</th></tr></thead>
+              <tbody>
+                <tr><td><span class="engine-name"><span class="engine-glyph">C</span>ChatGPT</span></td><td class="num">3</td><td class="num">7</td></tr>
+                <tr><td><span class="engine-name"><span class="engine-glyph">G</span>AI Overview</span></td><td class="num">3</td><td class="num">4</td></tr>
+                <tr><td><span class="engine-name"><span class="engine-glyph">M</span>AI Mode</span></td><td class="num">1</td><td class="num">1</td></tr>
+                <tr><td><span class="engine-name"><span class="engine-glyph">&#9670;</span>Gemini</span></td><td class="num">3</td><td class="num">2</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="w" id="w-seo">
+          <div class="w-head">
+            <h3>SEO Overview</h3>
+            <span class="info" title="Semrush domain metrics for the root domain">i</span>
+            <div class="w-tools">
+              <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
+              <span class="chip">United States <span class="caret">&#9660;</span></span>
+              <span class="chip">Desktop <span class="caret">&#9660;</span></span>
+              <span class="chip">Aug 11, 2026</span>
+              <button class="w-close" data-hide="w-seo" aria-label="Hide SEO Overview">&#10005;</button>
+            </div>
+          </div>
+          <div class="w-body">
+            <div class="metrics metrics-3">
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Authority Score</span></div>
+                <div class="metric-val num">10 <small class="flat">0</small></div>
+                <div class="metric-note">Semrush Rank <span class="num">2.8M</span> <span class="up">&#9650;</span></div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Organic Traffic</span></div>
+                <div class="metric-val num">190 <small class="up">+9.83%</small></div>
+                <div class="metric-spark chart" data-spark="traffic"></div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Organic Keywords</span></div>
+                <div class="metric-val num">280 <small class="up">+3.32%</small></div>
+                <div class="metric-note">29 pages ranking</div>
+              </div>
+            </div>
+            <div class="divider" style="margin:14px 0"></div>
+            <div class="metrics metrics-3">
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Paid Keywords</span></div>
+                <div class="metric-val num">0 <small class="flat">0%</small></div>
+                <div class="metric-note">Paid traffic <span class="num">0</span></div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Referring Domains</span></div>
+                <div class="metric-val num">155 <small class="up">+1.31%</small></div>
+                <div class="metric-spark chart" data-spark="refdomains"></div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Backlinks</span></div>
+                <div class="metric-val num">315 <small class="down">&#9660; 12</small></div>
+                <div class="metric-note">106 analyzed in audit</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Row 2: main cluster -->
+      <div class="cluster">
+        <div class="col">
+
+          <div class="pair">
+            <section class="w" id="w-listing">
+              <div class="w-head">
+                <h3>Listing Management</h3>
+                <span class="info" title="Business listings synced across directories">i</span>
+                <div class="w-tools"><button class="w-close" data-hide="w-listing" aria-label="Hide Listing Management">&#10005;</button></div>
+              </div>
+              <p class="w-sub">Twin Home Buyer &middot; 170 Glenn Way, Suite 5, San Carlos, CA</p>
+              <div class="w-body" style="padding-top:0">
+                <div class="metrics" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+                  <div class="metric">
+                    <div class="metric-label"><span class="eyebrow">Connected Listings</span></div>
+                    <div class="metric-val num">60 <small class="flat">/ 71</small></div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label"><span class="eyebrow">Total Reviews</span></div>
+                    <div class="metric-val num">12</div>
+                  </div>
+                </div>
+                <div class="dist" style="margin-top:12px">
+                  <div class="dist-row" style="grid-template-columns:minmax(0,1fr) 46px">
+                    <div class="dist-track"><div class="dist-fill" style="width:84.5%;background:var(--r4)"></div></div>
+                    <span class="pct num">84.5%</span>
+                  </div>
+                </div>
+              </div>
+              <div class="w-foot"><button class="btn">View full report</button></div>
+            </section>
+
+            <section class="w" id="w-onpage">
+              <div class="w-head">
+                <h3>On Page SEO Checker</h3>
+                <span class="info" title="Optimization ideas by type">i</span>
+                <div class="w-tools"><button class="w-close" data-hide="w-onpage" aria-label="Hide On Page SEO Checker">&#10005;</button></div>
+              </div>
+              <p class="w-sub">Updated Fri, Aug 7, 2026</p>
+              <div class="w-body" style="padding-top:0">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                  <span class="eyebrow">Total ideas</span>
+                  <span class="eyebrow">29 pages</span>
+                </div>
+                <div class="ring-wrap chart" id="ringWrap" style="margin-top:6px">
+                  <div id="ringHost"></div>
+                  <div class="legend" id="ringLegend"></div>
+                </div>
+                <div class="divider" style="margin:12px 0 2px"></div>
+                <span class="eyebrow">Top pages to optimize</span>
+                <div class="rows">
+                  <div class="row"><span class="grow"><a href="#" onclick="return false">twinhomebuyer.com/</a></span><span class="val">10 ideas</span></div>
+                  <div class="row"><span class="grow"><a href="#" onclick="return false">twinhomebuyer.com/los-angeles-county</a></span><span class="val">4 ideas</span></div>
+                </div>
+              </div>
+              <div class="w-foot"><button class="btn">View full report</button></div>
+            </section>
+          </div>
+
+          <section class="w" id="w-audit">
+            <div class="w-head">
+              <h3>Backlink Audit</h3>
+              <span class="info" title="Toxicity assessment of the referring-domain profile">i</span>
+              <div class="w-tools">
+                <span class="chip">Updated Fri, Aug 7, 2026</span>
+                <button class="w-close" data-hide="w-audit" aria-label="Hide Backlink Audit">&#10005;</button>
+              </div>
+            </div>
+            <div class="w-body">
+              <div class="sub-grid">
+                <div>
+                  <span class="eyebrow">Overall toxicity score</span>
+                  <div class="tox-head" style="margin-top:2px">
+                    <span class="tox-score">Medium</span>
+                    <span style="font-size:12.5px;color:var(--ink-2)">17 domains need review</span>
+                  </div>
+                  <div class="tox-legend">
+                    <div class="tox-item">
+                      <span class="n" style="color:var(--critical-text)">13</span>
+                      <span class="l"><span class="swatch" style="background:var(--critical)"></span>18.6% toxic</span>
+                    </div>
+                    <div class="tox-item">
+                      <span class="n">4</span>
+                      <span class="l"><span class="swatch" style="background:var(--warning)"></span>5.7% potentially</span>
+                    </div>
+                    <div class="tox-item">
+                      <span class="n">53</span>
+                      <span class="l"><span class="swatch" style="background:var(--good)"></span>75.7% non-toxic</span>
+                    </div>
+                  </div>
+                  <div class="chart" id="toxHost"></div>
+                  <div class="sub-grid" style="margin-top:16px">
+                    <div class="fact">
+                      <span class="eyebrow">Referring Domains</span>
+                      <span class="n">70</span>
+                      <div class="fact-rows">
+                        <div class="fact-row"><span class="k">New</span><span class="v">6</span></div>
+                        <div class="fact-row"><span class="k">Broken</span><span class="v">4</span></div>
+                        <div class="fact-row"><span class="k">Lost</span><span class="v">9</span></div>
+                      </div>
+                    </div>
+                    <div class="fact">
+                      <span class="eyebrow">Analyzed Backlinks</span>
+                      <span class="n">106</span>
+                      <div class="fact-rows">
+                        <div class="fact-row"><span class="k">New</span><span class="v">10</span></div>
+                        <div class="fact-row"><span class="k">Broken</span><span class="v">17</span></div>
+                        <div class="fact-row"><span class="k">Lost</span><span class="v">15</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <span class="eyebrow">Most toxic backlinks</span>
+                  <div style="overflow-x:auto;margin-top:6px">
+                    <table class="tbl">
+                      <thead><tr><th scope="col">Source URL</th><th scope="col">Toxicity</th></tr></thead>
+                      <tbody id="toxRows"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="w-foot"><button class="btn">View full report</button></div>
+          </section>
+
+          <section class="w" id="w-traffic">
+            <div class="w-head">
+              <h3>Traffic Analytics</h3>
+              <div class="w-tools">
+                <span class="chip">Semrush data</span>
+                <span class="chip">Google data</span>
+                <span class="chip">Jul 13 – Aug 11, 2026 <span class="caret">&#9660;</span></span>
+                <button class="w-close" data-hide="w-traffic" aria-label="Hide Traffic Analytics">&#10005;</button>
+              </div>
+            </div>
+            <div class="w-body">
+              <div class="empty">
+                <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v4m0 3h.01"/></svg>
+                <h4>Reconnect Google Analytics</h4>
+                <p>bryan@twinhomebuyer.com no longer has access. Reconnect the account to pull sessions, users and conversions back in.</p>
+                <button class="btn btn-primary">Reconnect Google</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="w" id="w-pageviews">
+            <div class="w-head">
+              <h3>Top Pageviews</h3>
+              <div class="w-tools">
+                <span class="chip">Jul 13 – Aug 11, 2026 <span class="caret">&#9660;</span></span>
+                <button class="w-close" data-hide="w-pageviews" aria-label="Hide Top Pageviews">&#10005;</button>
+              </div>
+            </div>
+            <p class="w-sub">Google Analytics &middot; Twinhomebuyer / twin home buyer</p>
+            <div class="w-body" style="padding-top:0">
+              <div class="empty">
+                <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v4m0 3h.01"/></svg>
+                <h4>Reconnect Google Analytics</h4>
+                <p>Same account, same fix — page-level views resume as soon as the connection is restored.</p>
+                <button class="btn btn-primary">Reconnect Google</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="w" id="w-gsc">
+            <div class="w-head">
+              <h3>Google Search Console Performance</h3>
+              <div class="w-tools">
+                <span class="chip">Jul 13 – Aug 12, 2026 <span class="caret">&#9660;</span></span>
+                <button class="w-close" data-hide="w-gsc" aria-label="Hide Google Search Console Performance">&#10005;</button>
+              </div>
+            </div>
+            <p class="w-sub">Property: https://www.twinhomebuyer.com/</p>
+            <div class="w-body" style="padding-top:0">
+              <div class="empty">
+                <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 18h16M6 18V9m5 9V5m5 13v-6"/></svg>
+                <h4>No data in Search Console</h4>
+                <p>The property returned zero rows for this range. Verify the property URL matches the indexed www host.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="w" id="w-connect">
+            <div class="w-head">
+              <h3>Connect Google services</h3>
+              <div class="w-tools"><button class="w-close" data-hide="w-connect" aria-label="Hide Connect Google services">&#10005;</button></div>
+            </div>
+            <div class="w-body">
+              <div class="connect">
+                <div class="connect-art">
+                  <svg width="86" height="66" viewBox="0 0 120 92" fill="none" stroke="var(--baseline)" stroke-width="2">
+                    <rect x="4" y="6" width="72" height="52" rx="4"/>
+                    <path d="M14 46V28m12 18V20m12 26v-13m12 13V24" stroke="var(--accent)"/>
+                    <rect x="52" y="40" width="60" height="44" rx="4" fill="var(--surface)"/>
+                    <circle cx="72" cy="58" r="8" stroke="var(--accent)"/>
+                    <path d="M86 54h18M86 62h12" />
+                    <rect x="86" y="70" width="20" height="7" rx="3.5" fill="var(--accent)" stroke="none"/>
+                  </svg>
+                </div>
+                <div>
+                  <h4 style="font-size:14px;margin-bottom:5px">Enrich this dashboard with first-party data</h4>
+                  <p style="margin:0 0 10px;color:var(--ink-2);font-size:12.5px;max-width:60ch">Google Analytics and Search Console fill in sessions, conversions, queries and click-through — the numbers Semrush estimates but cannot see.</p>
+                  <button class="btn btn-primary">Connect</button>
+                  <button class="btn">Disclaimer</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="col">
+          <div class="pair">
+            <section class="w" id="w-oti">
+              <div class="w-head">
+                <h3>Organic Traffic Insights</h3>
+                <div class="w-tools"><button class="w-close" data-hide="w-oti" aria-label="Hide Organic Traffic Insights">&#10005;</button></div>
+              </div>
+              <p class="w-sub">Last 7 days</p>
+              <div class="w-body" style="padding-top:0">
+                <div class="metric">
+                  <div class="metric-label"><span class="eyebrow">Organic sessions</span></div>
+                  <div class="metric-val">N/A</div>
+                  <div class="metric-note">Needs Google Analytics</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="w" id="w-linkbuilding">
+              <div class="w-head">
+                <h3>Link Building Tool</h3>
+                <div class="w-tools"><button class="w-close" data-hide="w-linkbuilding" aria-label="Hide Link Building Tool">&#10005;</button></div>
+              </div>
+              <div class="w-body">
+                <div class="metric">
+                  <div class="metric-label"><span class="eyebrow">Domain Prospects</span></div>
+                  <div class="metric-val num">29</div>
+                  <div class="metric-note">0 outreach started</div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="w" id="w-rankings">
+            <div class="w-head">
+              <h3>Organic Rankings</h3>
+              <div class="w-tools">
+                <span class="chip">Last month <span class="caret">&#9660;</span></span>
+                <button class="w-close" data-hide="w-rankings" aria-label="Hide Organic Rankings">&#10005;</button>
+              </div>
+            </div>
+            <div class="w-head" style="border-bottom:0;padding-bottom:0">
+              <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
+              <span class="chip">United States <span class="caret">&#9660;</span></span>
+              <span class="chip">Desktop <span class="caret">&#9660;</span></span>
+            </div>
+            <div class="w-body">
+              <span class="eyebrow">Organic traffic</span>
+              <div class="chart" id="trafficChart" style="margin-top:6px"></div>
+              <div class="divider" style="margin:14px 0 10px"></div>
+              <span class="eyebrow">Keyword position changes</span>
+              <div class="chart" id="posChart" style="margin-top:6px"></div>
+              <div class="chart-legend">
+                <span><i style="background:var(--good)"></i>Improved</span>
+                <span><i style="background:var(--critical)"></i>Declined</span>
+              </div>
+            </div>
+            <div class="w-foot"><button class="btn">View full report</button></div>
+          </section>
+
+          <section class="w" id="w-backlinks">
+            <div class="w-head">
+              <h3>Backlinks</h3>
+              <div class="w-tools">
+                <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
+                <button class="w-close" data-hide="w-backlinks" aria-label="Hide Backlinks">&#10005;</button>
+              </div>
+            </div>
+            <div class="w-body">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span class="eyebrow">Referring domains</span>
+                <span class="eyebrow">Last 12 months</span>
+              </div>
+              <div class="chart" id="refChart" style="margin-top:6px"></div>
+              <div class="divider" style="margin:14px 0 10px"></div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span class="eyebrow">By authority score</span>
+                <span class="eyebrow">Jul 2026</span>
+              </div>
+              <div class="dist" id="distHost" style="margin-top:8px"></div>
+            </div>
+            <div class="w-foot"><button class="btn">View full report</button></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Hidden widgets tray -->
+      <section class="w" id="hidden">
+        <div class="w-head">
+          <h3>Hidden Widgets</h3>
+          <span class="info" title="Widgets you closed. Restoring puts one back in its original slot.">i</span>
+          <div class="w-tools"><button class="btn" id="restoreAll">Restore all widgets</button></div>
+        </div>
+        <div class="w-body">
+          <div class="tray-items" id="tray"></div>
+        </div>
+      </section>
+
+      <!-- Widgets parked here at load, matching the source dashboard -->
+      <template id="parked">
+        <section class="w" id="w-position" data-name="Position Tracking">
+          <div class="w-head">
+            <h3>Position Tracking</h3>
+            <div class="w-tools"><button class="w-close" data-hide="w-position" aria-label="Hide Position Tracking">&#10005;</button></div>
+          </div>
+          <div class="w-body">
+            <div class="metrics metrics-3">
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Visibility</span></div><div class="metric-val num">1.4% <small class="up">+0.2</small></div></div>
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Tracked keywords</span></div><div class="metric-val num">40</div></div>
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Top 10</span></div><div class="metric-val num">3</div></div>
+            </div>
+          </div>
+        </section>
+        <section class="w" id="w-siteaudit" data-name="Site Audit">
+          <div class="w-head">
+            <h3>Site Audit</h3>
+            <div class="w-tools"><button class="w-close" data-hide="w-siteaudit" aria-label="Hide Site Audit">&#10005;</button></div>
+          </div>
+          <div class="w-body">
+            <div class="metrics metrics-3">
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Site health</span></div><div class="metric-val num">88%</div></div>
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Errors</span></div><div class="metric-val num" style="color:var(--critical-text)">12</div></div>
+              <div class="metric"><div class="metric-label"><span class="eyebrow">Warnings</span></div><div class="metric-val num">64</div></div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <p class="foot-note">
+        Phase 1 is the shell: menu, widget grid and chart anatomy, built against the Aug 11, 2026 Semrush snapshot.
+        Headline figures are transcribed from that pull; the daily and monthly series behind the two area charts and the
+        position-change columns are reconstructed to the shape shown, since the dashboard exposes endpoints rather than
+        per-day values. Phase 2 swaps every series for a live Semrush API read.
+      </p>
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var css = function (name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  };
+
+  /* ── Data ─────────────────────────────────────────────────── */
+
+  var TRAFFIC = {
+    label: 'Organic traffic',
+    from: 'Jul 14', to: 'Aug 11',
+    ticks: ['Jul 14', 'Jul 21', 'Jul 28', 'Aug 4', 'Aug 11'],
+    days: ['Jul 14','Jul 15','Jul 16','Jul 17','Jul 18','Jul 19','Jul 20','Jul 21','Jul 22','Jul 23','Jul 24','Jul 25','Jul 26','Jul 27','Jul 28','Jul 29','Jul 30','Jul 31','Aug 1','Aug 2','Aug 3','Aug 4','Aug 5','Aug 6','Aug 7','Aug 8','Aug 9','Aug 10','Aug 11'],
+    values: [148,150,149,151,150,152,151,150,149,151,152,150,151,153,152,158,168,176,182,186,189,191,190,189,190,192,191,189,190]
+  };
+
+  var POSITIONS = {
+    days: TRAFFIC.days,
+    up:   [0,0,0,0,0,1,0,0,2,0,3,1,0,2,1,0,2,4,3,2,0,1,4,2,3,1,2,3,1],
+    down: [0,0,0,0,0,0,1,0,1,0,2,0,2,1,3,1,0,2,1,3,1,0,2,1,2,3,1,2,1]
+  };
+
+  var REFDOMAINS = {
+    labels: ["Aug '25","Sep '25","Oct '25","Nov '25","Dec '25","Jan '26","Feb '26","Mar '26","Apr '26","May '26","Jun '26","Jul '26"],
+    ticks: ["Aug '25","Jan '26","Jul '26"],
+    values: [100,104,112,128,148,152,134,126,130,141,150,155]
+  };
+
+  var IDEAS = [
+    { name: 'Content',       value: 70 },
+    { name: 'Semantic',      value: 28 },
+    { name: 'Backlinks',     value: 27 },
+    { name: 'Technical SEO', value: 21 },
+    { name: 'SERP Features', value: 20 },
+    { name: 'Strategy',      value: 7  },
+    { name: 'User Experience', value: 0 }
+  ];
+  var IDEAS_TOTAL = 173, IDEAS_PAGES = 29;
+
+  var TOXIC_ROWS = [
+    { url: 'mail.indians.cc/page-27fae353c24b3036845cee91…', score: 100 },
+    { url: 'all-aged-domains.com/page-27fae353c24b3036845…', score: 100 },
+    { url: 'www.domain.com.ic/page-27fae353c24b3036845c…',   score: 91 },
+    { url: 'www.globalecommerce.org/page-27fae353c24b303…',  score: 90 },
+    { url: 'www.domains.com.bz/page/244952/',                score: 88 },
+    { url: 'sapphirevpn.net/all/766/7.html',                 score: 86 },
+    { url: 'www.pudhe.com/page-27fae353c24b3036845cee9…',    score: 84 }
+  ];
+
+  var AUTHORITY = [
+    { band: '81-100', pct: 0.65,  count: 1   },
+    { band: '61-80',  pct: 1.94,  count: 3   },
+    { band: '41-60',  pct: 0.65,  count: 1   },
+    { band: '21-40',  pct: 5.16,  count: 8   },
+    { band: '0-20',   pct: 91.61, count: 142 }
+  ];
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs) {
+    var n = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function ramp(i) { return css('--r' + (i + 1)); }
+
+  /* ── Tooltip helper ───────────────────────────────────────── */
+  function makeTip(host) {
+    var t = document.createElement('div');
+    t.className = 'tip';
+    host.appendChild(t);
+    return {
+      show: function (x, y, key, value, color) {
+        t.innerHTML = '<div class="tip-k"></div><div class="tip-v"></div>';
+        t.querySelector('.tip-k').textContent = key;
+        var v = t.querySelector('.tip-v');
+        if (color) {
+          var dot = document.createElement('i');
+          dot.style.cssText = 'width:8px;height:8px;border-radius:50%;display:block;background:' + color;
+          v.appendChild(dot);
+        }
+        v.appendChild(document.createTextNode(value));
+        t.style.left = x + 'px';
+        t.style.top = y + 'px';
+        t.setAttribute('data-on', '1');
+      },
+      hide: function () { t.removeAttribute('data-on'); }
+    };
+  }
+
+  /* ── Area chart (line + fill + crosshair) ─────────────────── */
+  function areaChart(host, cfg) {
+    host.innerHTML = '';
+    var W = 320, H = cfg.height || 116;
+    var pad = { t: 8, r: 6, b: 18, l: 30 };
+    var vals = cfg.values, n = vals.length;
+    var lo = cfg.min != null ? cfg.min : Math.min.apply(null, vals);
+    var hi = cfg.max != null ? cfg.max : Math.max.apply(null, vals);
+    var span = hi - lo || 1;
+    var x = function (i) { return pad.l + (n === 1 ? 0 : i * (W - pad.l - pad.r) / (n - 1)); };
+    var y = function (v) { return pad.t + (hi - v) / span * (H - pad.t - pad.b); };
+
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': cfg.aria });
+    var gridVals = cfg.gridValues || [lo, lo + span / 2, hi];
+    gridVals.forEach(function (gv) {
+      svg.appendChild(el('line', { class: 'gridline', x1: pad.l, x2: W - pad.r, y1: y(gv), y2: y(gv) }));
+      var lab = el('text', { class: 'tick', x: pad.l - 6, y: y(gv) + 3, 'text-anchor': 'end' });
+      lab.textContent = Math.round(gv);
+      svg.appendChild(lab);
+    });
+
+    var d = '', a = '';
+    for (var i = 0; i < n; i++) {
+      d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(vals[i]).toFixed(1) + ' ';
+    }
+    a = d + 'L' + x(n - 1).toFixed(1) + ' ' + y(lo) + ' L' + x(0) + ' ' + y(lo) + ' Z';
+
+    var gid = 'g' + Math.abs(cfg.aria.length * 977 % 9999);
+    var defs = el('defs');
+    var lg = el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 });
+    var s1 = el('stop', { offset: '0%', 'stop-color': css('--accent-line'), 'stop-opacity': .22 });
+    var s2 = el('stop', { offset: '100%', 'stop-color': css('--accent-line'), 'stop-opacity': .02 });
+    lg.appendChild(s1); lg.appendChild(s2); defs.appendChild(lg); svg.appendChild(defs);
+
+    svg.appendChild(el('path', { d: a, fill: 'url(#' + gid + ')' }));
+    svg.appendChild(el('path', { d: d, fill: 'none', stroke: css('--accent-line'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    svg.appendChild(el('line', { class: 'axis', x1: pad.l, x2: W - pad.r, y1: y(lo), y2: y(lo) }));
+
+    // emphasized endpoint
+    svg.appendChild(el('circle', { cx: x(n - 1), cy: y(vals[n - 1]), r: 4.5, fill: css('--accent-line'), stroke: css('--surface'), 'stroke-width': 2 }));
+
+    (cfg.ticks || []).forEach(function (tk) {
+      var i = cfg.labels.indexOf(tk);
+      if (i < 0) return;
+      var anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+      var t = el('text', { class: 'tick', x: x(i), y: H - 4, 'text-anchor': anchor });
+      t.textContent = tk;
+      svg.appendChild(t);
+    });
+
+    var cross = el('line', { class: 'axis', y1: pad.t, y2: y(lo), opacity: 0, stroke: css('--accent-line') });
+    var focus = el('circle', { r: 4, fill: css('--accent-line'), stroke: css('--surface'), 'stroke-width': 2, opacity: 0 });
+    svg.appendChild(cross); svg.appendChild(focus);
+    host.appendChild(svg);
+
+    var tip = makeTip(host);
+    svg.addEventListener('pointermove', function (ev) {
+      var r = svg.getBoundingClientRect();
+      var px = (ev.clientX - r.left) / r.width * W;
+      var i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / ((W - pad.l - pad.r) / (n - 1 || 1)))));
+      cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('opacity', .5);
+      focus.setAttribute('cx', x(i)); focus.setAttribute('cy', y(vals[i])); focus.setAttribute('opacity', 1);
+      tip.show(x(i) / W * r.width, y(vals[i]) / H * r.height, cfg.labels[i], cfg.format ? cfg.format(vals[i]) : vals[i], css('--accent-line'));
+    });
+    svg.addEventListener('pointerleave', function () {
+      cross.setAttribute('opacity', 0); focus.setAttribute('opacity', 0); tip.hide();
+    });
+  }
+
+  /* ── Sparkline ────────────────────────────────────────────── */
+  function spark(host, values) {
+    host.innerHTML = '';
+    var W = 96, H = 26, n = values.length;
+    var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = hi - lo || 1;
+    var x = function (i) { return i * W / (n - 1); };
+    var y = function (v) { return 3 + (hi - v) / span * (H - 8); };
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, 'aria-hidden': 'true' });
+    var d = '';
+    for (var i = 0; i < n; i++) d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(values[i]).toFixed(1) + ' ';
+    svg.appendChild(el('path', { d: d + 'L' + W + ' ' + H + ' L0 ' + H + ' Z', fill: css('--accent-line'), 'fill-opacity': .12 }));
+    svg.appendChild(el('path', { d: d, fill: 'none', stroke: css('--accent-line'), 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    svg.appendChild(el('circle', { cx: x(n - 1), cy: y(values[n - 1]), r: 3, fill: css('--accent-line'), stroke: css('--surface'), 'stroke-width': 1.5 }));
+    host.appendChild(svg);
+  }
+
+  /* ── Diverging column chart ───────────────────────────────── */
+  function divergingChart(host, cfg) {
+    host.innerHTML = '';
+    var W = 320, H = 104, pad = { t: 6, r: 6, b: 18, l: 30 };
+    var n = cfg.up.length;
+    var maxUp = Math.max.apply(null, cfg.up) || 1;
+    var maxDown = Math.max.apply(null, cfg.down) || 1;
+    var top = Math.max(maxUp, maxDown);
+    var mid = pad.t + (H - pad.t - pad.b) / 2;
+    var unit = (H - pad.t - pad.b) / 2 / top;
+    var slot = (W - pad.l - pad.r) / n;
+    var bw = Math.max(3, Math.min(7, slot - 3));
+
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': cfg.aria });
+    [top, 0, -top].forEach(function (gv) {
+      var yy = mid - gv * unit;
+      svg.appendChild(el('line', { class: gv === 0 ? 'axis' : 'gridline', x1: pad.l, x2: W - pad.r, y1: yy, y2: yy }));
+      var t = el('text', { class: 'tick', x: pad.l - 6, y: yy + 3, 'text-anchor': 'end' });
+      t.textContent = Math.abs(gv);
+      svg.appendChild(t);
+    });
+
+    var tip = makeTip(host);
+    var good = css('--good'), bad = css('--critical');
+
+    for (var i = 0; i < n; i++) {
+      var cx = pad.l + slot * (i + .5);
+      ['up', 'down'].forEach(function (dir) {
+        var v = cfg[dir][i];
+        if (!v) return;
+        var h = v * unit;
+        var yTop = dir === 'up' ? mid - h : mid + 2;
+        var rect = el('rect', {
+          x: cx - bw / 2, y: yTop, width: bw, height: Math.max(2, h - 2),
+          rx: 2, fill: dir === 'up' ? good : bad
+        });
+        svg.appendChild(rect);
+      });
+      // hit target spans the full slot
+      var hit = el('rect', { x: pad.l + slot * i, y: pad.t, width: slot, height: H - pad.t - pad.b, fill: 'transparent' });
+      (function (i, cx) {
+        hit.addEventListener('pointerenter', function () {
+          var r = svg.getBoundingClientRect();
+          tip.show(cx / W * r.width, mid / H * r.height,
+            cfg.labels[i], cfg.up[i] + ' up / ' + cfg.down[i] + ' down', null);
+        });
+        hit.addEventListener('pointerleave', function () { tip.hide(); });
+      })(i, cx);
+      svg.appendChild(hit);
+    }
+
+    (cfg.ticks || []).forEach(function (tk) {
+      var i = cfg.labels.indexOf(tk);
+      if (i < 0) return;
+      var anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+      var t = el('text', { class: 'tick', x: pad.l + slot * (i + .5), y: H - 4, 'text-anchor': anchor });
+      t.textContent = tk;
+      svg.appendChild(t);
+    });
+    host.appendChild(svg);
+  }
+
+  /* ── Ideas ring (ordinal ramp, part-to-whole) ─────────────── */
+  function ideasRing() {
+    var host = document.getElementById('ringHost');
+    var legend = document.getElementById('ringLegend');
+    var wrap = document.getElementById('ringWrap');
+    host.innerHTML = ''; legend.innerHTML = '';
+    wrap.querySelectorAll('.tip').forEach(function (t) { t.remove(); });
+
+    var S = 132, r = 50, sw = 15, C = 2 * Math.PI * r;
+    var svg = el('svg', { viewBox: '0 0 ' + S + ' ' + S, width: S, height: S, role: 'img',
+      'aria-label': IDEAS_TOTAL + ' optimization ideas across ' + IDEAS_PAGES + ' pages, by idea type' });
+    var g = el('g', { transform: 'rotate(-90 ' + S / 2 + ' ' + S / 2 + ')' });
+    svg.appendChild(g);
+
+    var gap = 2, offset = 0, arcs = [];
+    IDEAS.forEach(function (d, i) {
+      if (!d.value) { arcs.push(null); return; }
+      var len = d.value / IDEAS_TOTAL * C;
+      var arc = el('circle', {
+        cx: S / 2, cy: S / 2, r: r, fill: 'none',
+        stroke: ramp(i), 'stroke-width': sw,
+        'stroke-dasharray': Math.max(1, len - gap) + ' ' + (C - Math.max(1, len - gap)),
+        'stroke-dashoffset': -offset
+      });
+      g.appendChild(arc);
+      arcs.push(arc);
+      offset += len;
+    });
+
+    var center = document.createElement('div');
+    center.className = 'ring-center';
+    center.style.cssText = 'position:absolute;inset:0;display:grid;place-content:center;pointer-events:none';
+    center.innerHTML = '<div class="ring-total num">' + IDEAS_TOTAL + '</div>' +
+      '<div class="eyebrow">ideas</div>';
+    var box = document.createElement('div');
+    box.style.cssText = 'position:relative;width:' + S + 'px;height:' + S + 'px';
+    box.appendChild(svg); box.appendChild(center);
+    host.appendChild(box);
+
+    var tip = makeTip(wrap);
+    IDEAS.forEach(function (d, i) {
+      var row = document.createElement('div');
+      row.className = 'legend-row' + (d.value ? '' : ' is-zero');
+      row.innerHTML = '<span class="swatch" style="background:' + (d.value ? ramp(i) : 'var(--baseline)') + '"></span>' +
+        '<span>' + d.name + '</span>' +
+        '<span class="legend-val">' + (d.value || '—') + '</span>';
+      row.addEventListener('pointerenter', function () {
+        row.classList.add('is-active');
+        if (arcs[i]) arcs[i].setAttribute('stroke-width', sw + 4);
+      });
+      row.addEventListener('pointerleave', function () {
+        row.classList.remove('is-active');
+        if (arcs[i]) arcs[i].setAttribute('stroke-width', sw);
+      });
+      legend.appendChild(row);
+    });
+
+    svg.addEventListener('pointerleave', function () { tip.hide(); });
+    arcs.forEach(function (arc, i) {
+      if (!arc) return;
+      arc.style.cursor = 'default';
+      arc.addEventListener('pointerenter', function (ev) {
+        var wr = wrap.getBoundingClientRect();
+        tip.show(ev.clientX - wr.left, ev.clientY - wr.top,
+          IDEAS[i].name, IDEAS[i].value + ' ideas · ' + Math.round(IDEAS[i].value / IDEAS_TOTAL * 100) + '%', ramp(i));
+      });
+    });
+  }
+
+  /* ── Toxicity stacked bar ─────────────────────────────────── */
+  function toxicityBar() {
+    var host = document.getElementById('toxHost');
+    host.innerHTML = '';
+    var parts = [
+      { k: 'Toxic', v: 13, pct: 18.6, c: css('--critical') },
+      { k: 'Potentially toxic', v: 4, pct: 5.7, c: css('--warning') },
+      { k: 'Non-toxic', v: 53, pct: 75.7, c: css('--good') }
+    ];
+    var W = 320, H = 14, gap = 2, total = 70;
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+      'aria-label': 'Referring domain toxicity: 13 toxic, 4 potentially toxic, 53 non-toxic of 70' });
+    var x = 0;
+    var tip = makeTip(host);
+    parts.forEach(function (p, i) {
+      var w = p.v / total * W - (i < parts.length - 1 ? gap : 0);
+      var rect = el('rect', { x: x, y: 0, width: Math.max(3, w), height: H, rx: 4, fill: p.c });
+      rect.addEventListener('pointerenter', function (ev) {
+        var r = host.getBoundingClientRect();
+        tip.show(ev.clientX - r.left, H, p.k, p.v + ' domains · ' + p.pct + '%', p.c);
+      });
+      rect.addEventListener('pointerleave', function () { tip.hide(); });
+      svg.appendChild(rect);
+      x += p.v / total * W;
+    });
+    host.appendChild(svg);
+  }
+
+  /* ── Static table + distribution ──────────────────────────── */
+  function toxicTable() {
+    var body = document.getElementById('toxRows');
+    body.innerHTML = '';
+    TOXIC_ROWS.forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td><span>' + r.url + '</span></td>' +
+        '<td class="score-cell' + (r.score >= 90 ? ' score-100' : '') + '">' + r.score + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function distribution() {
+    var host = document.getElementById('distHost');
+    host.innerHTML = '';
+    var max = Math.max.apply(null, AUTHORITY.map(function (a) { return a.pct; }));
+    AUTHORITY.forEach(function (a, i) {
+      var row = document.createElement('div');
+      row.className = 'dist-row';
+      row.innerHTML = '<span class="band">' + a.band + '</span>' +
+        '<span class="dist-track"><span class="dist-fill" style="width:' +
+          Math.max(2, a.pct / max * 100) + '%;background:' + ramp(i) + '"></span></span>' +
+        '<span class="pct num">' + a.pct.toFixed(2) + '%</span>' +
+        '<span class="ct num">' + a.count + '</span>';
+      row.title = a.count + ' referring domains with authority score ' + a.band;
+      host.appendChild(row);
+    });
+  }
+
+  /* ── Render all charts ────────────────────────────────────── */
+  function renderCharts() {
+    var tHost = document.getElementById('trafficChart');
+    if (tHost) areaChart(tHost, {
+      values: TRAFFIC.values, labels: TRAFFIC.days, ticks: TRAFFIC.ticks,
+      min: 100, max: 250, gridValues: [100, 150, 200, 250],
+      aria: 'Organic traffic, Jul 14 to Aug 11 2026, rising from 148 to 190 visits',
+      format: function (v) { return v + ' visits'; }
+    });
+
+    var pHost = document.getElementById('posChart');
+    if (pHost) divergingChart(pHost, {
+      up: POSITIONS.up, down: POSITIONS.down, labels: POSITIONS.days,
+      ticks: ['Jul 14', 'Jul 21', 'Jul 28', 'Aug 4', 'Aug 11'],
+      aria: 'Keyword position changes per day, improved above the baseline and declined below'
+    });
+
+    var rHost = document.getElementById('refChart');
+    if (rHost) areaChart(rHost, {
+      values: REFDOMAINS.values, labels: REFDOMAINS.labels, ticks: REFDOMAINS.ticks,
+      min: 80, max: 200, gridValues: [100, 150, 200], height: 108,
+      aria: 'Referring domains over the last 12 months, from 100 to 155',
+      format: function (v) { return v + ' domains'; }
+    });
+
+    document.querySelectorAll('[data-spark]').forEach(function (h) {
+      spark(h, h.getAttribute('data-spark') === 'traffic' ? TRAFFIC.values : REFDOMAINS.values);
+    });
+
+    if (document.getElementById('ringHost')) ideasRing();
+    if (document.getElementById('toxHost')) toxicityBar();
+    if (document.getElementById('distHost')) distribution();
+  }
+
+  toxicTable();
+  renderCharts();
+
+  // Re-render on theme flip so chart ink follows the tokens.
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', renderCharts);
+  }
+
+  /* ── Widget hide / restore ────────────────────────────────── */
+  var tray = document.getElementById('tray');
+  var stash = {};   // id -> { node, parent, next, name }
+
+  function widgetName(node) {
+    return node.getAttribute('data-name') || (node.querySelector('.w-head h3') || {}).textContent || node.id;
+  }
+
+  function renderTray() {
+    tray.innerHTML = '';
+    var ids = Object.keys(stash);
+    if (!ids.length) {
+      var p = document.createElement('span');
+      p.className = 'tray-empty';
+      p.textContent = 'Nothing hidden — every widget is on the dashboard.';
+      tray.appendChild(p);
+      return;
+    }
+    ids.forEach(function (id) {
+      var chip = document.createElement('span');
+      chip.className = 'tray-chip';
+      chip.innerHTML = '<span>' + stash[id].name + '</span>';
+      var b = document.createElement('button');
+      b.className = 'restore';
+      b.textContent = 'Restore';
+      b.addEventListener('click', function () { restore(id); });
+      chip.appendChild(b);
+      tray.appendChild(chip);
+    });
+  }
+
+  function hide(id) {
+    var node = document.getElementById(id);
+    if (!node || stash[id]) return;
+    stash[id] = { node: node, parent: node.parentNode, next: node.nextElementSibling, name: widgetName(node) };
+    node.parentNode.removeChild(node);
+    renderTray();
+  }
+
+  function restore(id) {
+    var s = stash[id];
+    if (!s) return;
+    if (s.next && s.next.parentNode === s.parent) s.parent.insertBefore(s.node, s.next);
+    else s.parent.appendChild(s.node);
+    delete stash[id];
+    renderTray();
+    renderCharts();
+    flash(s.node);
+  }
+
+  function flash(node) {
+    node.classList.add('flash');
+    setTimeout(function () { node.classList.remove('flash'); }, 900);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest ? ev.target.closest('[data-hide]') : null;
+    if (btn) hide(btn.getAttribute('data-hide'));
+  });
+
+  // Park the two widgets that start hidden, exactly as the source dashboard does.
+  (function parkInitial() {
+    var tpl = document.getElementById('parked');
+    var canvas = document.querySelector('.canvas');
+    var anchor = document.getElementById('hidden');
+    Array.prototype.forEach.call(tpl.content.children, function (child) {
+      var node = child.cloneNode(true);
+      canvas.insertBefore(node, anchor);
+      stash[node.id] = { node: node, parent: canvas, next: anchor, name: widgetName(node) };
+      canvas.removeChild(node);
+    });
+    renderTray();
+  })();
+
+  document.getElementById('restoreAll').addEventListener('click', function () {
+    Object.keys(stash).forEach(restore);
+  });
+
+  /* ── Menu behaviour ───────────────────────────────────────── */
+  var app = document.getElementById('app');
+  document.getElementById('navCollapse').addEventListener('click', function () {
+    app.setAttribute('data-nav', 'closed');
+  });
+  document.getElementById('navOpen').addEventListener('click', function () {
+    app.setAttribute('data-nav', app.getAttribute('data-nav') === 'open' ? 'closed' : 'open');
+  });
+
+  var isNarrow = function () { return window.matchMedia('(max-width: 900px)').matches; };
+  if (isNarrow()) app.setAttribute('data-nav', 'closed');
+
+  var navItems = [];
+
+  // Rail switches the menu heading; only the SEO workspace is authored in phase 1.
+  var railBtns = Array.prototype.slice.call(document.querySelectorAll('.rail-btn'));
+  var navBody = document.getElementById('navBody');
+  var seoMenu = navBody.innerHTML;
+  railBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      railBtns.forEach(function (o) { o.removeAttribute('aria-current'); });
+      b.setAttribute('aria-current', 'true');
+      var space = b.getAttribute('data-space');
+      document.getElementById('spaceTitle').textContent = space;
+      app.setAttribute('data-nav', 'open');
+      if (space === 'SEO') {
+        navBody.innerHTML = seoMenu;
+        bindNav();
+      } else {
+        navBody.innerHTML = '<p class="nav-empty">Phase 1 covers the SEO workspace. ' +
+          space + ' gets its menu once this shell is signed off.</p>';
+      }
+    });
+  });
+
+  function bindNav() {
+    navItems = Array.prototype.slice.call(document.querySelectorAll('.nav-item'));
+    navItems.forEach(function (item) {
+      item.addEventListener('click', function () {
+        navItems.forEach(function (o) { o.removeAttribute('aria-current'); });
+        item.setAttribute('aria-current', 'true');
+        var id = item.getAttribute('data-target');
+        if (!id) return;
+        if (stash[id]) restore(id);
+        var node = document.getElementById(id);
+        if (!node) return;
+        if (isNarrow()) app.setAttribute('data-nav', 'closed');
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        flash(node);
+      });
+    });
+    wireSearch();
+  }
+  bindNav();
+
+  /* ── Menu filter ──────────────────────────────────────────── */
+  function wireSearch() {
+    var input = document.getElementById('toolSearch');
+    var hint = document.getElementById('navHint');
+    input.oninput = function () {
+      var q = input.value.trim().toLowerCase();
+      var shown = 0;
+      document.querySelectorAll('.nav-group').forEach(function (group) {
+        var any = false;
+        group.querySelectorAll('.nav-item').forEach(function (item) {
+          var match = !q || item.textContent.toLowerCase().indexOf(q) > -1;
+          item.hidden = !match;
+          if (match) { any = true; shown++; }
+        });
+        if (group.querySelector('.nav-item')) group.hidden = !any;
+      });
+      if (hint) hint.textContent = q
+        ? shown + ' tool' + (shown === 1 ? '' : 's') + ' match “' + input.value.trim() + '”'
+        : 'Items with a dot jump to their widget on the dashboard.';
+    };
+  }
+  wireSearch();
+})();
+</script>
