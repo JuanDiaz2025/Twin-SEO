@@ -41,7 +41,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/webmasters.readonly',
-  'https://www.googleapis.com/auth/analytics.readonly'
+  'https://www.googleapis.com/auth/analytics.readonly',
+  'openid',
+  'email'   // so the dashboard can show which account is connected
 ].join(' ');
 
 /* ── tiny JSON store ────────────────────────────────────────── */
@@ -101,6 +103,14 @@ async function exchangeCode(code, redirect) {
   tokens.expires_at = Date.now() + (body.expires_in || 3600) * 1000;
   // Google only returns a refresh token on the first consent; keep the old one.
   if (body.refresh_token) tokens.refresh_token = body.refresh_token;
+
+  // The id_token carries the signed-in address; read it for display only.
+  if (body.id_token) {
+    try {
+      const payload = JSON.parse(Buffer.from(body.id_token.split('.')[1], 'base64url').toString('utf8'));
+      if (payload.email) tokens.email = payload.email;
+    } catch (e) { /* display nicety; never worth failing a sign-in over */ }
+  }
   writeJson(TOKEN_FILE, tokens);
   return tokens;
 }
@@ -349,6 +359,7 @@ const server = http.createServer(async (req, res) => {
         server: true,
         hasCredentials: Boolean(cfg.clientId && cfg.clientSecret),
         connected: Boolean(tokens.refresh_token),
+        account: tokens.email || '',
         clientId: cfg.clientId,
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
@@ -452,7 +463,7 @@ server.listen(PORT, HOST, () => {
   console.log(`\n  Twin SEO running at  http://${HOST}:${PORT}`);
   console.log(`  Redirect URI          http://${HOST}:${PORT}/auth/callback`);
   console.log(`  OAuth credentials     ${cfg.clientId && cfg.clientSecret ? 'set' : 'NOT SET — add them on the Connections screen'}`);
-  console.log(`  Google account        ${tokens.refresh_token ? 'connected' : 'not connected'}`);
+  console.log(`  Google account        ${tokens.refresh_token ? (tokens.email || 'connected') : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
   console.log(`  GA4 property          ${cfg.ga4Property || '—'}\n`);
   if (process.argv.includes('--open') || IS_PACKAGED) {
