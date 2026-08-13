@@ -280,7 +280,7 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     concurrency: 2,
     delayMs: 400,      // spacing between requests, not per worker
     timeoutMs: 20000,
-    retries: 1
+    retries: 2
   }, options);
   const start = new URL(startUrl);
   const origin = start.origin;
@@ -310,11 +310,20 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
 
   // One shared clock, so the request rate holds whatever the concurrency is.
   let nextSlot = 0;
+  let currentDelay = delayMs;
+  let throttleHits = 0;
   async function throttle() {
     const now = Date.now();
     const wait = Math.max(0, nextSlot - now);
-    nextSlot = Math.max(now, nextSlot) + delayMs;
+    nextSlot = Math.max(now, nextSlot) + currentDelay;
     if (wait > 0) await sleep(wait);
+  }
+
+  // Being told to slow down is information: honour it for the rest of the run
+  // rather than repeatedly provoking the same failure.
+  function backOff() {
+    throttleHits++;
+    currentDelay = Math.min(5000, Math.max(currentDelay * 2, 1000));
   }
 
   async function fetchOnce(url) {
@@ -348,10 +357,13 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
           await sleep(1000 * (attempt + 1));
           continue;
         }
-        if ((res.status === 429 || res.status === 503) && attempt < opts.retries) {
-          const retryAfter = parseFloat(res.headers.get('retry-after'));
-          await sleep(isFinite(retryAfter) ? Math.min(30000, retryAfter * 1000) : 2000 * (attempt + 1));
-          continue;
+        if (res.status === 429 || res.status === 503) {
+          backOff();
+          if (attempt < opts.retries) {
+            const retryAfter = parseFloat(res.headers.get('retry-after'));
+            await sleep(isFinite(retryAfter) ? Math.min(30000, retryAfter * 1000) : 2000 * (attempt + 1));
+            continue;
+          }
         }
         break;
       }
@@ -441,11 +453,15 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     pump();
   });
 
-  return { pages, robots, origin, linkSources, delayMs, sitemapSeeded: seen.size - 1 };
+  return {
+    pages, robots, origin, linkSources,
+    delayMs, finalDelayMs: currentDelay, throttleHits,
+    sitemapSeeded: seen.size - 1
+  };
 }
 
 /* ── Turning pages into findings ────────────────────────────────── */
-function analyse({ pages, robots, origin, linkSources }) {
+function analyse({ pages, robots, origin, linkSources, throttleHits = 0 }) {
   const found = {};
   const add = (key, url, detail, fix, current) => {
     if (!found[key]) found[key] = [];
@@ -625,6 +641,8 @@ function analyse({ pages, robots, origin, linkSources }) {
     health,
     counts,
     issues,
+    throttled: throttleHits > 0,
+    throttleHits,
     crawled: pages.length,
     htmlPages,
     origin,

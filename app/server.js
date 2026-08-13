@@ -66,6 +66,7 @@ function loadConfig() {
     clientId: process.env.GOOGLE_CLIENT_ID || stored.clientId || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
+    psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || '',
     ga4Measurement: stored.ga4Measurement || '',
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, '')
   };
@@ -326,6 +327,115 @@ function startAudit(startUrl, maxPages, pace) {
   });
 }
 
+/* ── PageSpeed Insights ─────────────────────────────────────────
+   The same Lighthouse run that powers pagespeed.web.dev, plus the
+   field data Chrome collects from real visitors when there is
+   enough traffic to report it.
+   ─────────────────────────────────────────────────────────────── */
+
+const CWV = {
+  LARGEST_CONTENTFUL_PAINT_MS: { label: 'Largest Contentful Paint', good: 2500, poor: 4000, unit: 'ms' },
+  INTERACTION_TO_NEXT_PAINT:   { label: 'Interaction to Next Paint', good: 200,  poor: 500,  unit: 'ms' },
+  CUMULATIVE_LAYOUT_SHIFT_SCORE: { label: 'Cumulative Layout Shift', good: 0.1, poor: 0.25, unit: 'score' },
+  FIRST_CONTENTFUL_PAINT_MS:   { label: 'First Contentful Paint', good: 1800, poor: 3000, unit: 'ms' },
+  EXPERIMENTAL_TIME_TO_FIRST_BYTE: { label: 'Time to First Byte', good: 800, poor: 1800, unit: 'ms' }
+};
+
+function rate(metric, value) {
+  const spec = CWV[metric];
+  if (!spec) return 'unknown';
+  return value <= spec.good ? 'good' : value <= spec.poor ? 'needs-improvement' : 'poor';
+}
+
+async function pageSpeed(url, strategy) {
+  const cfg = loadConfig();
+  const api = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+  api.searchParams.set('url', url);
+  api.searchParams.set('strategy', strategy === 'desktop' ? 'desktop' : 'mobile');
+  ['performance', 'accessibility', 'best-practices', 'seo'].forEach(c => api.searchParams.append('category', c));
+  // A key is optional; without one Google rate-limits by IP.
+  if (cfg.psiKey) api.searchParams.set('key', cfg.psiKey);
+
+  const res = await fetch(api.toString(), { headers: { Accept: 'application/json' } });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { /* fall through to the raw text */ }
+  if (!res.ok) {
+    const message = (data && data.error && data.error.message) || text.slice(0, 300) || `HTTP ${res.status}`;
+    const err = new Error(res.status === 429
+      ? 'PageSpeed is rate-limiting this address. Wait a minute, or add a free PageSpeed API key on the Connections screen.'
+      : message);
+    err.status = res.status;
+    throw err;
+  }
+
+  return shapePsi(data, strategy, url);
+}
+
+function shapePsi(data, strategy, url) {
+  const lh = data.lighthouseResult || {};
+  const cats = lh.categories || {};
+  const audits = lh.audits || {};
+  const score = key => (cats[key] && cats[key].score != null ? Math.round(cats[key].score * 100) : null);
+  const lab = key => (audits[key] && audits[key].numericValue != null
+    ? { value: audits[key].numericValue, display: audits[key].displayValue || '' } : null);
+
+  // Field data — what real visitors experienced, where Chrome has enough of it.
+  const field = [];
+  const loading = data.loadingExperience && data.loadingExperience.metrics;
+  if (loading) {
+    Object.keys(loading).forEach(key => {
+      if (!CWV[key]) return;
+      const m = loading[key];
+      field.push({
+        key,
+        label: CWV[key].label,
+        unit: CWV[key].unit,
+        value: m.percentile,
+        rating: (m.category || rate(key, m.percentile)).toLowerCase().replace('_', '-')
+      });
+    });
+  }
+
+  // The changes with the largest measured saving, in the order worth doing.
+  const opportunities = Object.keys(audits)
+    .map(k => audits[k])
+    .filter(a => a && a.details && a.details.type === 'opportunity' &&
+                 a.details.overallSavingsMs > 100 && a.score !== 1)
+    .sort((a, b) => b.details.overallSavingsMs - a.details.overallSavingsMs)
+    .slice(0, 8)
+    .map(a => ({
+      title: a.title,
+      description: (a.description || '').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)'),
+      savingsMs: Math.round(a.details.overallSavingsMs)
+    }));
+
+  return {
+    url: (lh.finalUrl || url),
+    strategy: strategy === 'desktop' ? 'desktop' : 'mobile',
+    fetchedAt: lh.fetchTime || '',
+    scores: {
+      performance: score('performance'),
+      accessibility: score('accessibility'),
+      bestPractices: score('best-practices'),
+      seo: score('seo')
+    },
+    lab: {
+      lcp: lab('largest-contentful-paint'),
+      cls: lab('cumulative-layout-shift'),
+      tbt: lab('total-blocking-time'),
+      fcp: lab('first-contentful-paint'),
+      si: lab('speed-index'),
+      ttfb: lab('server-response-time')
+    },
+    field,
+    hasFieldData: field.length > 0,
+    opportunities
+  };
+}
+
+module.exports = { shapePsi };
+
 /* ── HTTP plumbing ──────────────────────────────────────────── */
 
 function send(res, status, body, type) {
@@ -397,6 +507,7 @@ const server = http.createServer(async (req, res) => {
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement,
+        hasPsiKey: Boolean(cfg.psiKey),
         redirectUri: redirectUri(req)
       });
     }
@@ -404,7 +515,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       const patch = {};
-      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement'].forEach(k => {
+      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement', 'psiKey'].forEach(k => {
         if (typeof body[k] === 'string') patch[k] = body[k].trim();
       });
       if (patch.ga4Property) patch.ga4Property = patch.ga4Property.replace(/^properties\//, '');
@@ -464,6 +575,13 @@ const server = http.createServer(async (req, res) => {
       const pace = ['gentle', 'normal', 'brisk'].indexOf(body.pace) > -1 ? body.pace : 'normal';
       startAudit(target.toString(), maxPages, pace);
       return send(res, 200, { started: true, url: target.toString(), maxPages, pace });
+    }
+
+    if (route === '/api/pagespeed') {
+      const target = url.searchParams.get('url') || loadConfig().gscSite;
+      if (!target) return send(res, 400, { error: 'No URL to test.' });
+      const strategy = url.searchParams.get('strategy') || 'mobile';
+      return send(res, 200, await pageSpeed(target, strategy));
     }
 
     if (route === '/api/audit/stop' && req.method === 'POST') {
@@ -543,6 +661,11 @@ function openBrowser(url) {
   } catch (e) { /* no browser to open; the URL is printed above regardless */ }
 }
 
+if (require.main !== module) {
+  // Imported for its helpers (tests), not run as the app.
+  module.exports.pageSpeed = pageSpeed;
+  module.exports.runAuditRoutes = server;
+} else {
 server.listen(PORT, HOST, () => {
   const cfg = loadConfig();
   const tokens = readJson(TOKEN_FILE, {});
@@ -566,3 +689,4 @@ server.on('error', (err) => {
   }
   process.exit(1);
 });
+}
