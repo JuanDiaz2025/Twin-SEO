@@ -464,6 +464,21 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (route === '/api/ga4/properties') {
+      const data = await google('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200');
+      const properties = [];
+      (data.accountSummaries || []).forEach(acct => {
+        (acct.propertySummaries || []).forEach(prop => {
+          properties.push({
+            id: String(prop.property || '').replace(/^properties\//, ''),
+            name: prop.displayName || '',
+            account: acct.displayName || ''
+          });
+        });
+      });
+      return send(res, 200, { properties });
+    }
+
     if (route === '/api/gsc/sites') {
       const data = await google('https://searchconsole.googleapis.com/webmasters/v3/sites');
       return send(res, 200, { sites: (data.siteEntry || []).map(s => s.siteUrl) });

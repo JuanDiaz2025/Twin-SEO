@@ -1581,6 +1581,11 @@
                   <span class="field-hint">Numbers only. GA4 → Admin → Property details. Not the <code>G-</code> measurement ID.</span>
                 </div>
                 <div class="field">
+                  <label for="fGa4Pick">Properties this account can read</label>
+                  <select class="input" id="fGa4Pick"><option value="">Press Test connection to list them</option></select>
+                  <span class="field-hint">Straight from the Analytics Admin API. If a property is missing here, the signed-in account has no access to it.</span>
+                </div>
+                <div class="field">
                   <label for="fGa4Meas">Measurement ID <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label>
                   <input class="input" id="fGa4Meas" type="text" spellcheck="false" placeholder="G-XXXXXXXXXX">
                   <span class="field-hint">Recorded for reference — the Data API keys off the property ID.</span>
@@ -2726,7 +2731,9 @@
     if (/insufficient|permission|caller does not have/i.test(msg)) {
       return {
         lead: 'The signed-in Google account cannot read this property.',
-        body: msg + ' Check the account has at least Viewer access to it.'
+        body: msg + ' On the Connections screen, press Test connection under Google Analytics 4 — ' +
+          'it lists every property that account can actually read. Note that Google returns this same ' +
+          'message for a property ID that does not exist, so check the ID as well as the access.'
       };
     }
     return { lead: '', body: msg };
@@ -2989,6 +2996,25 @@
     }
   }
 
+  function fillGa4Picker(properties) {
+    var pick = $('fGa4Pick');
+    if (!pick) return;
+    pick.innerHTML = '';
+    var head = document.createElement('option');
+    head.value = '';
+    head.textContent = properties.length
+      ? 'Pick a property… (' + properties.length + ' available)'
+      : 'No properties visible to this account';
+    pick.appendChild(head);
+    properties.forEach(function (p) {
+      var o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = (p.name || 'Property') + ' — ' + p.id + (p.account ? '  ·  ' + p.account : '');
+      if (p.id === cfg.ga4Property) o.selected = true;
+      pick.appendChild(o);
+    });
+  }
+
   function renderCfgJson() {
     var safe = {
       clientId: cfg.clientId,
@@ -3157,6 +3183,16 @@
       }).catch(function (e) { say('gscTestOut', e.message, 'err'); });
     });
 
+    $('fGa4Pick').addEventListener('change', function () {
+      if (!this.value) return;
+      $('fGa4Prop').value = this.value;
+      persistSettings().then(function () {
+        ga4RefreshChrome();
+        renderCfgJson();
+        say('ga4TestOut', 'Property set. Press Test connection again.', 'ok');
+      });
+    });
+
     $('fGscPick').addEventListener('change', function () {
       if (this.value) {
         $('fGscSite').value = this.value;
@@ -3174,8 +3210,26 @@
       }
       say('ga4TestOut', 'Testing…');
       persistSettings().then(function () {
+        // List what this account can actually read before testing the ID, so a
+        // permissions failure can name the cause instead of restating Google.
+        return SERVER ? srv('/api/ga4/properties').catch(function () { return null; }) : null;
+      }).then(function (list) {
+        if (list && list.properties) {
+          fillGa4Picker(list.properties);
+          var match = list.properties.filter(function (p) { return p.id === cfg.ga4Property; })[0];
+          if (!match) {
+            var who = (serverStatus && serverStatus.account) ? serverStatus.account : 'the signed-in account';
+            say('ga4TestOut', list.properties.length
+              ? 'Property ' + cfg.ga4Property + ' is not one of the ' + list.properties.length +
+                ' ' + (list.properties.length === 1 ? 'property' : 'properties') + ' ' + who +
+                ' can read. Pick the right one from the list, or grant that account access in GA4.'
+              : who + ' cannot read any GA4 property. Grant it Viewer access in GA4 → Admin → Property access management.', 'err');
+            return null;
+          }
+        }
         return SERVER ? srv('/api/ga4?days=7&dim=channel') : ga4Report(['date'], ['sessions'], 7, 1);
       }).then(function (res) {
+        if (!res) return;
         var n = (res.rows || []).length;
         say('ga4TestOut', n ? 'Connected — the property returned data.' : 'Connected, but the property reported no rows for the last 7 days.', n ? 'ok' : 'warn');
         ga4RefreshChrome();
