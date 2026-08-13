@@ -649,6 +649,22 @@
     background: var(--warning); color: #241a00; padding: 3px 7px; border-radius: 4px; font-weight: 700;
   }
 
+  /* ── Toasts ──────────────────────────────────────────────── */
+  .toast-host {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    z-index: 100; display: grid; gap: 8px; justify-items: center;
+    pointer-events: none; width: max-content; max-width: min(92vw, 480px);
+  }
+  .toast {
+    background: var(--rail); color: #fff;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 9px; padding: 10px 14px;
+    font-size: 12.5px; line-height: 1.4;
+    box-shadow: 0 8px 28px rgba(12,22,24,.32);
+    animation: toastIn .16s ease-out;
+  }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
   /* Nav toggle for narrow screens */
   .nav-open-btn { display: none; }
 
@@ -782,8 +798,8 @@
           <input id="toolSearch" type="search" placeholder="Go to tool…" aria-label="Filter tools in the menu" autocomplete="off">
         </label>
         <div class="top-spacer"></div>
-        <a class="top-link" href="#hidden">Hidden widgets</a>
-        <span class="chip">Bryan C. <span class="caret">&#9660;</span></span>
+        <button class="top-link" id="hiddenLink">Hidden widgets</button>
+        <span class="chip">Bryan C.</span>
       </div>
       <div class="title-row">
         <div>
@@ -793,8 +809,8 @@
           <h1 id="pageTitle">SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span></h1>
         </div>
         <div class="title-actions">
-          <button class="btn">Share</button>
-          <button class="btn btn-primary">+ Create SEO project</button>
+          <button class="btn" id="btnShare">Share</button>
+          <button class="btn btn-primary" data-soon="Project creation arrives with the Semrush API wiring. The dashboard already tracks www.twinhomebuyer.com.">+ Create SEO project</button>
         </div>
       </div>
       <div class="snapshot-strip">
@@ -812,7 +828,7 @@
             <h3>AI Search</h3>
             <span class="info" title="Brand visibility across AI answer engines">i</span>
             <div class="w-tools">
-              <span class="chip">United States <span class="caret">&#9660;</span></span>
+              <span class="chip">United States</span>
               <button class="w-close" data-hide="w-aisearch" aria-label="Hide AI Search">&#10005;</button>
             </div>
           </div>
@@ -848,9 +864,9 @@
             <h3>SEO Overview</h3>
             <span class="info" title="Semrush domain metrics for the root domain">i</span>
             <div class="w-tools">
-              <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
-              <span class="chip">United States <span class="caret">&#9660;</span></span>
-              <span class="chip">Desktop <span class="caret">&#9660;</span></span>
+              <span class="chip">Root Domain</span>
+              <span class="chip">United States</span>
+              <span class="chip">Desktop</span>
               <span class="chip">Aug 11, 2026</span>
               <button class="w-close" data-hide="w-seo" aria-label="Hide SEO Overview">&#10005;</button>
             </div>
@@ -1028,7 +1044,7 @@
               <div class="w-tools">
                 <span class="chip">Semrush data</span>
                 <span class="chip">Google data</span>
-                <span class="chip">Jul 13 – Aug 11, 2026 <span class="caret">&#9660;</span></span>
+                <span class="chip">Jul 13 – Aug 11, 2026</span>
                 <button class="w-close" data-hide="w-traffic" aria-label="Hide Traffic Analytics">&#10005;</button>
               </div>
             </div>
@@ -1046,7 +1062,7 @@
             <div class="w-head">
               <h3>Top Pageviews</h3>
               <div class="w-tools">
-                <span class="chip">Jul 13 – Aug 11, 2026 <span class="caret">&#9660;</span></span>
+                <span class="chip">Jul 13 – Aug 11, 2026</span>
                 <button class="w-close" data-hide="w-pageviews" aria-label="Hide Top Pageviews">&#10005;</button>
               </div>
             </div>
@@ -1065,7 +1081,7 @@
             <div class="w-head">
               <h3>Google Search Console Performance</h3>
               <div class="w-tools">
-                <span class="chip">Jul 13 – Aug 12, 2026 <span class="caret">&#9660;</span></span>
+                <span class="chip">Jul 13 – Aug 12, 2026</span>
                 <button class="w-close" data-hide="w-gsc" aria-label="Hide Google Search Console Performance">&#10005;</button>
               </div>
             </div>
@@ -1101,7 +1117,7 @@
                   <h4 style="font-size:14px;margin-bottom:5px">Enrich this dashboard with first-party data</h4>
                   <p style="margin:0 0 10px;color:var(--ink-2);font-size:12.5px;max-width:60ch">Google Analytics and Search Console fill in sessions, conversions, queries and click-through — the numbers Semrush estimates but cannot see.</p>
                   <button class="btn btn-primary" data-goto="connections">Connect</button>
-                  <button class="btn">Disclaimer</button>
+                  <button class="btn" data-soon="Google data is read-only and stays in your browser. Twin SEO never writes to your Analytics or Search Console property.">Disclaimer</button>
                 </div>
               </div>
             </div>
@@ -1144,14 +1160,14 @@
             <div class="w-head">
               <h3>Organic Rankings</h3>
               <div class="w-tools">
-                <span class="chip">Last month <span class="caret">&#9660;</span></span>
+                <span class="chip">Last month</span>
                 <button class="w-close" data-hide="w-rankings" aria-label="Hide Organic Rankings">&#10005;</button>
               </div>
             </div>
             <div class="w-head" style="border-bottom:0;padding-bottom:0">
-              <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
-              <span class="chip">United States <span class="caret">&#9660;</span></span>
-              <span class="chip">Desktop <span class="caret">&#9660;</span></span>
+              <span class="chip">Root Domain</span>
+              <span class="chip">United States</span>
+              <span class="chip">Desktop</span>
             </div>
             <div class="w-body">
               <span class="eyebrow">Organic traffic</span>
@@ -1171,7 +1187,7 @@
             <div class="w-head">
               <h3>Backlinks</h3>
               <div class="w-tools">
-                <span class="chip">Root Domain <span class="caret">&#9660;</span></span>
+                <span class="chip">Root Domain</span>
                 <button class="w-close" data-hide="w-backlinks" aria-label="Hide Backlinks">&#10005;</button>
               </div>
             </div>
@@ -2900,6 +2916,58 @@
         else n.removeAttribute('aria-current');
       });
     }
+  });
+
+  /* ── Toasts: every control answers, even the unbuilt ones ── */
+  var toastHost = document.createElement('div');
+  toastHost.className = 'toast-host';
+  toastHost.setAttribute('role', 'status');
+  toastHost.setAttribute('aria-live', 'polite');
+  document.body.appendChild(toastHost);
+
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    toastHost.appendChild(t);
+    setTimeout(function () { t.remove(); }, 4200);
+    while (toastHost.children.length > 3) toastHost.firstChild.remove();
+  }
+
+  // "View full report" has no destination yet — say so instead of doing nothing.
+  document.querySelectorAll('.w-foot .btn').forEach(function (b) {
+    if (b.hasAttribute('data-soon')) return;
+    var w = b.closest('.w');
+    var h = w && w.querySelector('.w-head h3');
+    var name = h ? h.textContent.trim() : 'This';
+    b.setAttribute('data-soon', 'The full ' + name + ' report lands once the Semrush export is wired in.');
+  });
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest && ev.target.closest('[data-soon]');
+    if (t) toast(t.getAttribute('data-soon'));
+  });
+
+  $('btnShare').addEventListener('click', function () {
+    var url = location.href;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(
+        function () { toast('Dashboard link copied to the clipboard.'); },
+        function () { toast('Copy blocked by the browser — the link is in the address bar.'); }
+      );
+    } else {
+      toast('Copy blocked by the browser — the link is in the address bar.');
+    }
+  });
+
+  $('hiddenLink').addEventListener('click', function () {
+    showView('dashboard');
+    document.querySelectorAll('.nav-item').forEach(function (n) {
+      if (n.getAttribute('data-view') === 'dashboard') n.setAttribute('aria-current', 'true');
+      else n.removeAttribute('aria-current');
+    });
+    var tray = $('hidden');
+    if (tray) { tray.scrollIntoView({ behavior: 'smooth', block: 'center' }); flash(tray); }
   });
 
   wireConnections();
