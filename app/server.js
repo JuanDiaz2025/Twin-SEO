@@ -20,9 +20,19 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
+// When packaged as a single executable the dashboard travels inside the binary
+// and settings live beside it, rather than in a source checkout.
+let seaAsset = null;
+try {
+  const sea = require('node:sea');
+  if (sea.isSea()) seaAsset = sea.getAsset;
+} catch (e) { /* plain node run */ }
+
+const IS_PACKAGED = Boolean(seaAsset);
 const ROOT = path.join(__dirname, '..');
+const BASE = IS_PACKAGED ? path.dirname(process.execPath) : ROOT;
 const DASHBOARD = path.join(ROOT, 'dashboard', 'index.html');
-const DATA_DIR = path.join(ROOT, '.data');
+const DATA_DIR = path.join(BASE, '.data');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const TOKEN_FILE = path.join(DATA_DIR, 'tokens.json');
 
@@ -300,8 +310,13 @@ function readBody(req) {
 
 // The dashboard is authored as a fragment so it can also publish as an artifact;
 // the server supplies the document shell and flags that an API is available.
+function readDashboard() {
+  if (seaAsset) return seaAsset('dashboard', 'utf8');
+  return fs.readFileSync(DASHBOARD, 'utf8');
+}
+
 function renderPage() {
-  const fragment = fs.readFileSync(DASHBOARD, 'utf8');
+  const fragment = readDashboard();
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -414,6 +429,21 @@ function escapeHtml(s) {
   ));
 }
 
+function openBrowser(url) {
+  const { spawn } = require('child_process');
+  const cmd = process.platform === 'win32' ? 'cmd'
+            : process.platform === 'darwin' ? 'open'
+            : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    // spawn reports a missing opener through an async 'error' event, not a
+    // throw — without this handler that event is fatal to the whole process.
+    child.on('error', () => {});
+    child.unref();
+  } catch (e) { /* no browser to open; the URL is printed above regardless */ }
+}
+
 server.listen(PORT, HOST, () => {
   const cfg = loadConfig();
   const tokens = readJson(TOKEN_FILE, {});
@@ -423,4 +453,17 @@ server.listen(PORT, HOST, () => {
   console.log(`  Google account        ${tokens.refresh_token ? 'connected' : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
   console.log(`  GA4 property          ${cfg.ga4Property || '—'}\n`);
+  if (process.argv.includes('--open') || IS_PACKAGED) {
+    openBrowser(`http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  }
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n  Port ${PORT} is already in use — Twin SEO may already be running.`);
+    console.error(`  Open http://${HOST}:${PORT}, or start on another port:  PORT=8081 npm start\n`);
+  } else {
+    console.error('\n  Could not start the server:', err.message, '\n');
+  }
+  process.exit(1);
 });

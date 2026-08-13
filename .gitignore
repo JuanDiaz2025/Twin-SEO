@@ -5,3 +5,6 @@
 node_modules/
 *.log
 .DS_Store
+
+# Built executables — far too large for git; build them with app/build-exe.mjs
+build/

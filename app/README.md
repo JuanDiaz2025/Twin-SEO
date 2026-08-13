@@ -1,12 +1,43 @@
 # Running Twin SEO as an app
 
-The dashboard can run three ways. Only the app gets you **live** Google data.
+## Just start it
+
+**Windows** — double-click **`Twin SEO.bat`**
+**Mac** — double-click **`Twin SEO.command`**
+
+Either one starts the app and opens your browser. If Node.js is missing it sends
+you to the download page; install the LTS build once and double-click again.
+Leave the black window open while you work — closing it stops the app.
+
+From a terminal, `npm start` does the same thing.
+
+## Or build a true standalone executable
+
+If you would rather have one file that needs nothing installed at all:
+
+```bash
+node app/build-exe.mjs                    # for this machine
+node app/build-exe.mjs --target win-x64   # a Windows .exe
+```
+
+Out comes `build/twin-seo` (or `twin-seo.exe`) — about 119 MB, because the
+Node runtime is baked in. Copy it anywhere and run it; it keeps its settings in
+a `.data` folder next to itself. Built files are git-ignored, since a binary
+that size does not belong in a repository.
+
+Mac binaries have to be code-signed, and `codesign` only exists on macOS — so
+build those on a Mac. A darwin build made anywhere else gets blocked by
+Gatekeeper.
+
+## The three ways to run it
+
+Only the app gets you **live** Google data.
 
 | How | Live GSC / GA4 | Needs |
 |---|---|---|
 | Published artifact | no — the sandbox blocks all external requests | nothing; use the CSV import |
 | Static file on your own host | yes, browser-side OAuth | an OAuth client, an https origin |
-| **App (`npm start`)** | **yes, server-side OAuth** | **Node 18+, an OAuth client** |
+| **App (launcher, `npm start`, or the executable)** | **yes, server-side OAuth** | **an OAuth client** |
 
 The app is the one to use. The token exchange and every API call happen on the
 server, so no token ever reaches the browser, there is no CORS to fight, and
