@@ -1367,6 +1367,7 @@
 
     <!-- ══ Connections ═══════════════════════════════════════ -->
     <main class="canvas view" id="view-connections" hidden>
+      <div id="envBanner"></div>
       <div class="cluster">
         <div class="col">
 
@@ -1382,7 +1383,8 @@
                   <label for="fClientId">OAuth client ID</label>
                   <input class="input" id="fClientId" type="text" spellcheck="false"
                          placeholder="123456789-abcdefg.apps.googleusercontent.com">
-                  <span class="field-hint">Web application client from Google Cloud → APIs &amp; Services → Credentials. No client secret needed — this page uses the browser token flow.</span>
+                  <span class="field-hint">Web application client from Google Cloud → APIs &amp; Services → Credentials. It always ends in <code>.apps.googleusercontent.com</code>. No client secret needed — this page uses the browser token flow.</span>
+                  <span class="field-hint" id="clientIdOut"></span>
                 </div>
                 <div class="field">
                   <label>Authorized JavaScript origin &amp; redirect URI</label>
@@ -2185,7 +2187,8 @@
         return data;
       });
     }, function () {
-      throw new Error('Request blocked before it reached Google. The shared artifact preview forbids external calls — run this file from a local server or your own host.');
+      throw new Error('The request never reached Google. In the shared preview that is expected — external calls are blocked there. ' +
+        'Running locally, check the network and that the Search Console and Analytics Data APIs are enabled on the project.');
     });
   }
 
@@ -2510,6 +2513,7 @@
   function alertBar(hostId, msg) {
     var host = $(hostId);
     if (!host) return;
+    host.querySelectorAll('.note').forEach(function (n) { n.remove(); });
     var bar = document.createElement('div');
     bar.className = 'note';
     bar.setAttribute('data-tone', 'warn');
@@ -2617,6 +2621,49 @@
   /* ── Connections screen ───────────────────────────────────── */
   function redirectUri() { return location.origin + location.pathname; }
 
+  function inFrame() {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  }
+
+  // A client ID is always <digits>-<slug>.apps.googleusercontent.com. Anything
+  // else makes Google answer "Error 401: invalid_client", so catch it here.
+  function normalizeClientId(v) {
+    var m = String(v || '').match(/[0-9]+-[a-z0-9_-]+\.apps\.googleusercontent\.com/i);
+    return m ? m[0] : String(v || '').trim();
+  }
+
+  function clientIdProblem(v) {
+    if (!v) return 'Add the OAuth client ID first.';
+    if (/^GOCSPX-/i.test(v)) return 'That is the client secret. You want the client ID above it, ending in .apps.googleusercontent.com.';
+    if (/^G-/i.test(v)) return 'That is a GA4 measurement ID, not an OAuth client. The client ID ends in .apps.googleusercontent.com.';
+    if (/^\d+$/.test(v)) return 'That is a numeric ID — a project number or a service account Unique ID. Neither works here; you need a Web application OAuth client ID.';
+    if (!/\.apps\.googleusercontent\.com$/i.test(v)) return 'A client ID always ends in .apps.googleusercontent.com. Google rejects anything else with “invalid_client”.';
+    return '';
+  }
+
+  function renderEnvBanner() {
+    var host = $('envBanner');
+    if (!host) return;
+    host.innerHTML = '';
+    var blocked = inFrame() || location.protocol === 'file:';
+    if (!blocked) return;
+    var why = inFrame()
+      ? 'This page is running inside a preview frame. Google refuses to show its sign-in screen in a frame, and calls to its APIs are blocked here by the preview’s security policy.'
+      : 'This page is open from a file:// path. Google rejects file:// redirects outright.';
+    var bar = document.createElement('div');
+    bar.className = 'note';
+    bar.setAttribute('data-tone', 'warn');
+    bar.style.marginBottom = '14px';
+    bar.innerHTML = '<span class="note-glyph">!</span><span>' +
+      '<strong>Google sign-in cannot complete here.</strong> ' + why +
+      ' Serve the file and open it directly:<br>' +
+      '<code style="display:inline-block;margin:6px 0">cd dashboard &amp;&amp; python3 -m http.server 8080</code><br>' +
+      'then open <code>http://localhost:8080/index.html</code> and register that same URL on the OAuth client as both an ' +
+      'authorized JavaScript origin and a redirect URI. Everything else on this screen still saves normally.' +
+      '</span>';
+    host.appendChild(bar);
+  }
+
   function fillForm() {
     $('fClientId').value = cfg.clientId;
     $('fGscSite').value = cfg.gscSite;
@@ -2631,6 +2678,10 @@
     gscRefreshChrome();
     ga4RefreshChrome();
     renderCfgJson();
+    renderEnvBanner();
+    var problem = cfg.clientId ? clientIdProblem(cfg.clientId) : '';
+    $('fClientId').setAttribute('aria-invalid', problem ? 'true' : 'false');
+    say('clientIdOut', problem, problem ? 'err' : '');
   }
 
   function refreshTokenPill() {
@@ -2696,11 +2747,29 @@
       else done();
     });
 
+    $('fClientId').addEventListener('blur', function () {
+      this.value = normalizeClientId(this.value);
+      var problem = this.value ? clientIdProblem(this.value) : '';
+      this.setAttribute('aria-invalid', problem ? 'true' : 'false');
+      say('clientIdOut', problem, problem ? 'err' : '');
+    });
+
     $('btnConnect').addEventListener('click', function () {
+      $('fClientId').value = normalizeClientId($('fClientId').value);
       readForm();
-      if (!cfg.clientId) { say('saveOut', 'Add an OAuth client ID first.', 'err'); return; }
-      if (location.protocol === 'file:') {
-        say('saveOut', 'Google rejects file:// redirects. Serve the page over http first, e.g. python3 -m http.server.', 'err');
+      var problem = clientIdProblem(cfg.clientId);
+      if (problem) {
+        $('fClientId').setAttribute('aria-invalid', 'true');
+        say('clientIdOut', problem, 'err');
+        say('saveOut', 'Fix the client ID before connecting.', 'err');
+        $('fClientId').focus();
+        return;
+      }
+      if (inFrame() || location.protocol === 'file:') {
+        renderEnvBanner();
+        saveCfg();
+        say('saveOut', 'Saved, but sign-in cannot run here — see the notice at the top of this screen.', 'err');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
       saveCfg();
