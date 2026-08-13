@@ -311,12 +311,13 @@ function startAudit(startUrl, maxPages, pace) {
   const tuning = PACE[pace] || PACE.normal;
   audit = {
     state: 'running', crawled: 0, total: 1, result: null, error: '',
-    url: startUrl, startedAt: Date.now(), stop: false,
+    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false,
     maxPages, pace: pace || 'normal'
   };
   runAudit(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
     audit.crawled = done;
     audit.total = total;
+    audit.lastBeat = Date.now();   // proof of life for the watchdog
   }, () => audit.stop).then(result => {
     audit.result = result;
     audit.state = 'done';
@@ -569,7 +570,11 @@ const server = http.createServer(async (req, res) => {
         return send(res, 400, { error: `"${raw}" is not a URL I can crawl.` });
       }
       if (audit.state === 'running') {
-        return send(res, 409, { error: 'An audit is already running.', url: audit.url });
+        const stale = audit.lastBeat && Date.now() - audit.lastBeat > 5 * 60 * 1000;
+        if (!stale && !body.force) {
+          return send(res, 409, { error: 'An audit is already running.', url: audit.url });
+        }
+        audit.stop = true;   // let the old one wind down; this one takes over
       }
       const maxPages = Math.min(1000, Math.max(1, Number(body.maxPages) || 40));
       const pace = ['gentle', 'normal', 'brisk'].indexOf(body.pace) > -1 ? body.pace : 'normal';
@@ -590,6 +595,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (route === '/api/audit/status') {
+      // Nothing should stay "running" forever: if a crawl has made no progress
+      // for five minutes it is gone, and a new one must be allowed to start.
+      if (audit.state === 'running' && audit.lastBeat && Date.now() - audit.lastBeat > 5 * 60 * 1000) {
+        audit.state = 'error';
+        audit.error = 'The crawl stopped responding and was abandoned. Run it again.';
+      }
       return send(res, 200, {
         state: audit.state,
         crawled: audit.crawled,

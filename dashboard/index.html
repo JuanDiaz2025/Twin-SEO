@@ -1507,7 +1507,7 @@
             <div class="field">
               <label>Estimated time</label>
               <span class="code" id="auditEta" style="padding:8px 10px;display:block">about 20 seconds</span>
-              <span class="field-hint">Failed requests are retried once before a page is called broken.</span>
+              <span class="field-hint">Failed requests are retried twice, and the crawl slows down automatically if your server asks it to.</span>
             </div>
           </div>
           <div class="actions" style="margin-top:14px">
@@ -3581,6 +3581,50 @@
     }), null, true);
   }
 
+  function resetAuditControls() {
+    $('auditRun').disabled = false;
+    $('auditRun').textContent = 'Run audit';
+    var stop = $('auditStop');
+    stop.hidden = true;
+    stop.disabled = false;
+    stop.textContent = 'Stop';
+    $('auditProgress').hidden = true;
+    if (auditTimer) { clearInterval(auditTimer); auditTimer = null; }
+  }
+
+  function attachToRunningAudit() {
+    $('auditRun').disabled = true;
+    $('auditRun').textContent = 'Scanning…';
+    var stop = $('auditStop');
+    stop.hidden = false;
+    stop.disabled = false;
+    stop.textContent = 'Stop';
+    $('auditProgress').hidden = false;
+    if (auditTimer) clearInterval(auditTimer);
+    auditTimer = setInterval(pollAudit, 700);
+    pollAudit();
+  }
+
+  // Reloading the page, or coming back to this screen, should pick up whatever
+  // the server is doing rather than pretending nothing ever ran.
+  function syncAuditState() {
+    if (!SERVER) return;
+    srv('/api/audit/status').then(function (s) {
+      if (s.state === 'running') { attachToRunningAudit(); return; }
+      if (s.state === 'done' && s.result) {
+        resetAuditControls();
+        setPill($('auditPill'), s.result.counts.error ? 'warn' : 'ok', 'Health ' + s.result.health + '/100');
+        say('auditOut', 'Last scan — ' + s.result.crawled + ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', 'ok');
+        if (s.url) $('auditUrl').value = s.url;
+        renderAudit(s.result, s.tookMs);
+      } else if (s.state === 'error') {
+        resetAuditControls();
+        setPill($('auditPill'), 'err', 'Failed');
+        say('auditOut', s.error, 'err');
+      }
+    }).catch(function () { /* server not reachable; leave the idle state */ });
+  }
+
   function pollAudit() {
     srv('/api/audit/status').then(function (s) {
       if (s.state === 'running') {
@@ -3596,11 +3640,7 @@
         setPill($('auditPill'), 'warn', 'Running');
         return;
       }
-      clearInterval(auditTimer); auditTimer = null;
-      $('auditRun').disabled = false;
-      $('auditRun').textContent = 'Run audit';
-      $('auditStop').hidden = true;
-      $('auditProgress').hidden = true;
+      resetAuditControls();
       if (s.state === 'error') {
         setPill($('auditPill'), 'err', 'Failed');
         say('auditOut', s.error, 'err');
@@ -3614,9 +3654,8 @@
         renderAudit(s.result, s.tookMs);
       }
     }).catch(function (e) {
-      clearInterval(auditTimer); auditTimer = null;
-      $('auditRun').disabled = false;
-      $('auditRun').textContent = 'Run audit';
+      resetAuditControls();
+      setPill($('auditPill'), 'err', 'Lost contact');
       say('auditOut', e.message, 'err');
     });
   }
@@ -3679,9 +3718,13 @@
           pollAudit();
         })
         .catch(function (e) {
-          runBtn.disabled = false;
-          runBtn.textContent = 'Run audit';
-          $('auditProgress').hidden = true;
+          if (/already running/i.test(e.message)) {
+            say('auditOut', 'A scan was already in progress — showing that one.');
+            attachToRunningAudit();
+            return;
+          }
+          resetAuditControls();
+          setPill($('auditPill'), 'err', 'Failed to start');
           say('auditOut', e.message, 'err');
         });
     });
@@ -3868,6 +3911,7 @@
     if (name === 'audit') {
       var f = $('auditUrl');
       if (f && !f.value && cfg.gscSite) f.value = cfg.gscSite;
+      syncAuditState();
     }
     if (name === 'gsc') renderGsc();
     if (name === 'ga4') renderGa4();
