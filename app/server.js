@@ -364,7 +364,10 @@ async function pageSpeed(url, strategy) {
   if (!res.ok) {
     const message = (data && data.error && data.error.message) || text.slice(0, 300) || `HTTP ${res.status}`;
     const err = new Error(res.status === 429
-      ? 'PageSpeed is rate-limiting this address. Wait a minute, or add a free PageSpeed API key on the Connections screen.'
+      ? 'Google is rate-limiting PageSpeed requests from this network. A free API key removes the limit — ' +
+        'create one at https://console.cloud.google.com/apis/credentials (Create credentials → API key), enable the ' +
+        'PageSpeed Insights API for the project, then paste the key into Connections & API keys. ' +
+        'Without a key, waiting a minute between checks usually works.'
       : message);
     err.status = res.status;
     throw err;
