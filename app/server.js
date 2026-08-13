@@ -19,6 +19,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
+const { runAudit } = require('./audit');
 
 // When packaged as a single executable the dashboard travels inside the binary
 // and settings live beside it, rather than in a source checkout.
@@ -293,6 +294,25 @@ async function ga4Report(days, dim) {
   };
 }
 
+/* ── Site audit ─────────────────────────────────────────────── */
+
+let audit = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url: '', startedAt: 0 };
+
+function startAudit(startUrl, maxPages) {
+  audit = { state: 'running', crawled: 0, total: 1, result: null, error: '', url: startUrl, startedAt: Date.now() };
+  runAudit(startUrl, { maxPages }, (done, total) => {
+    audit.crawled = done;
+    audit.total = total;
+  }).then(result => {
+    audit.result = result;
+    audit.state = 'done';
+    audit.tookMs = Date.now() - audit.startedAt;
+  }).catch(err => {
+    audit.error = err.message || 'The crawl failed.';
+    audit.state = 'error';
+  });
+}
+
 /* ── HTTP plumbing ──────────────────────────────────────────── */
 
 function send(res, status, body, type) {
@@ -412,6 +432,36 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/disconnect' && req.method === 'POST') {
       try { fs.unlinkSync(TOKEN_FILE); } catch (e) { /* already gone */ }
       return send(res, 200, { ok: true });
+    }
+
+    if (route === '/api/audit/start' && req.method === 'POST') {
+      const body = await readBody(req);
+      const raw = String(body.url || loadConfig().gscSite || '').trim();
+      if (!raw) return send(res, 400, { error: 'Give me a URL to scan.' });
+      let target;
+      try {
+        target = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^sc-domain:/, ''));
+      } catch (e) {
+        return send(res, 400, { error: `"${raw}" is not a URL I can crawl.` });
+      }
+      if (audit.state === 'running') {
+        return send(res, 409, { error: 'An audit is already running.', url: audit.url });
+      }
+      const maxPages = Math.min(200, Math.max(1, Number(body.maxPages) || 40));
+      startAudit(target.toString(), maxPages);
+      return send(res, 200, { started: true, url: target.toString(), maxPages });
+    }
+
+    if (route === '/api/audit/status') {
+      return send(res, 200, {
+        state: audit.state,
+        crawled: audit.crawled,
+        total: audit.total,
+        url: audit.url,
+        error: audit.error,
+        tookMs: audit.tookMs || 0,
+        result: audit.state === 'done' ? audit.result : null
+      });
     }
 
     if (route === '/api/gsc/sites') {

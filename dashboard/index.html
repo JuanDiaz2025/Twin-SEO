@@ -652,6 +652,40 @@
     background: var(--warning); color: #241a00; padding: 3px 7px; border-radius: 4px; font-weight: 700;
   }
 
+  /* ── Audit findings ──────────────────────────────────────── */
+  .issue { border-top: 1px solid var(--hairline-soft); }
+  .issue:first-child { border-top: 0; }
+  .issue > summary {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 2px; cursor: pointer; list-style: none;
+    font-size: 13px;
+  }
+  .issue > summary::-webkit-details-marker { display: none; }
+  .issue > summary::before {
+    content: "\25B8"; color: var(--ink-3); font-size: 10px;
+    transition: transform .12s; flex: none;
+  }
+  .issue[open] > summary::before { transform: rotate(90deg); }
+  .issue summary:hover { background: var(--surface-sub); }
+  .issue .sev {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 4px; flex: none; font-weight: 700;
+  }
+  .sev-error { background: var(--critical); color: #fff; }
+  .sev-warning { background: var(--warning); color: #241a00; }
+  .sev-notice { background: var(--surface-sub); color: var(--ink-2); border: 1px solid var(--hairline); }
+  .issue .grow { flex: 1 1 auto; min-width: 0; }
+  .issue .n { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+  .issue-body { padding: 2px 2px 12px 24px; }
+  .issue-hint { font-size: 12.5px; color: var(--ink-2); margin: 0 0 8px; max-width: 70ch; }
+  .issue-urls { display: grid; gap: 3px; }
+  .issue-url {
+    display: flex; gap: 10px; font-size: 12px; padding: 3px 0;
+    border-top: 1px solid var(--hairline-soft);
+  }
+  .issue-url a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .issue-url .detail { color: var(--ink-3); flex: none; font-variant-numeric: tabular-nums; }
+
   /* ── Toasts ──────────────────────────────────────────────── */
   .toast-host {
     position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -740,7 +774,7 @@
       </div>
       <div class="nav-group">
         <span class="eyebrow">Site Performance</span>
-        <button class="nav-item" data-target="w-siteaudit"><span class="dot"></span>Site Audit</button>
+        <button class="nav-item" data-view="audit"><span class="dot"></span>Site Audit</button>
         <button class="nav-item" data-target="w-position"><span class="dot"></span>Position Tracking</button>
       </div>
       <div class="nav-group">
@@ -1384,6 +1418,72 @@
           </div>
         </div>
       </section>
+    </main>
+
+
+    <!-- ══ Site Audit ════════════════════════════════════════ -->
+    <main class="canvas view" id="view-audit" hidden>
+      <section class="w">
+        <div class="w-head">
+          <h3>Scan your site</h3>
+          <span class="info" title="Crawls your pages and reports what is wrong with them.">i</span>
+          <div class="w-tools"><span class="status-pill" id="auditPill"><i></i>Not run yet</span></div>
+        </div>
+        <div class="w-body">
+          <div class="form-grid form-2">
+            <div class="field">
+              <label for="auditUrl">Start URL</label>
+              <input class="input" id="auditUrl" type="text" spellcheck="false" placeholder="https://www.twinhomebuyer.com/">
+              <span class="field-hint">The crawl follows internal links from here and never leaves this domain.</span>
+            </div>
+            <div class="field">
+              <label for="auditMax">Pages to crawl</label>
+              <select class="input" id="auditMax">
+                <option value="15">15 — quick look</option>
+                <option value="40" selected>40 — normal</option>
+                <option value="100">100 — thorough</option>
+                <option value="200">200 — everything</option>
+              </select>
+              <span class="field-hint">Real requests to your server, so it stays polite: four at a time, and robots.txt is honoured.</span>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            <button class="btn btn-primary" id="auditRun">Run audit</button>
+            <span class="field-hint" id="auditOut"></span>
+          </div>
+          <div id="auditProgress" hidden style="margin-top:14px">
+            <div class="dist-track" style="height:6px"><span class="dist-fill" id="auditBar" style="width:0%;background:var(--accent-line)"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <div id="auditResult" hidden>
+        <section class="w">
+          <div class="w-head">
+            <h3>Site health</h3>
+            <div class="w-tools"><span class="chip" id="auditMeta"></span></div>
+          </div>
+          <div class="w-body">
+            <div class="kpis" id="auditKpis"></div>
+            <div class="chart" id="auditBarChart" style="margin-top:16px"></div>
+          </div>
+        </section>
+
+        <section class="w">
+          <div class="w-head"><h3>What to fix</h3></div>
+          <div class="w-body"><div id="auditIssues"></div></div>
+        </section>
+
+        <section class="w">
+          <div class="w-head">
+            <h3>Pages crawled</h3>
+            <div class="w-tools"><span class="chip" id="auditPageCount"></span></div>
+          </div>
+          <div class="w-body">
+            <div style="overflow-x:auto"><table class="data-tbl" id="auditPages"></table></div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <!-- ══ Connections ═══════════════════════════════════════ -->
@@ -2427,7 +2527,7 @@
     });
   }
 
-  function renderTable(table, cols, rows, emptyMsg) {
+  function renderTable(table, cols, rows, emptyMsg, noBars) {
     table.innerHTML = '';
     if (!rows || !rows.length) {
       table.innerHTML = '<tbody><tr><td style="color:var(--ink-3);border:0;padding:18px 0">' +
@@ -2450,13 +2550,16 @@
       cols.forEach(function (c, i) {
         var td = document.createElement('td');
         if (i === 0) {
-          td.className = 'bar-cell';
           td.title = String(r[c.key]);
           td.appendChild(document.createTextNode(r[c.key]));
-          var bar = document.createElement('span');
-          bar.className = 'bar';
-          bar.style.width = Math.max(2, (r[cols[1].key] || 0) / max * 100) + '%';
-          td.appendChild(bar);
+          // A bar only reads as a bar when column two is a magnitude.
+          if (!noBars) {
+            td.className = 'bar-cell';
+            var bar = document.createElement('span');
+            bar.className = 'bar';
+            bar.style.width = Math.max(2, (r[cols[1].key] || 0) / max * 100) + '%';
+            td.appendChild(bar);
+          }
         } else {
           td.textContent = c.fmt ? c.fmt(r[c.key]) : r[c.key];
         }
@@ -3125,6 +3228,204 @@
     });
   }
 
+
+  /* ── Site Audit ───────────────────────────────────────────── */
+  var auditTimer = null;
+
+  function auditSeverityBar(counts) {
+    var host = $('auditBarChart');
+    if (!host) return;
+    host.innerHTML = '';
+    var total = counts.error + counts.warning + counts.notice;
+    if (!total) {
+      host.innerHTML = '<p style="margin:0;font-size:12.5px;color:var(--good-text)">' +
+        'Nothing flagged across the pages crawled.</p>';
+      return;
+    }
+    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 14, gap = 2;
+    var parts = [
+      { k: 'Errors', v: counts.error, c: css('--critical') },
+      { k: 'Warnings', v: counts.warning, c: css('--warning') },
+      { k: 'Notices', v: counts.notice, c: css('--ink-3') }
+    ].filter(function (p) { return p.v > 0; });
+
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+      'aria-label': counts.error + ' errors, ' + counts.warning + ' warnings, ' + counts.notice + ' notices' });
+    var x = 0, tip = makeTip(host);
+    parts.forEach(function (p, i) {
+      var w = p.v / total * W - (i < parts.length - 1 ? gap : 0);
+      var rect = el('rect', { x: x, y: 0, width: Math.max(3, w), height: H, rx: 4, fill: p.c });
+      rect.addEventListener('pointerenter', function (ev) {
+        var r = host.getBoundingClientRect();
+        tip.show(ev.clientX - r.left, H, p.k, p.v + ' found', p.c);
+      });
+      rect.addEventListener('pointerleave', function () { tip.hide(); });
+      svg.appendChild(rect);
+      x += p.v / total * W;
+    });
+    host.appendChild(svg);
+
+    var legend = document.createElement('div');
+    legend.className = 'chart-legend';
+    parts.forEach(function (p) {
+      var span = document.createElement('span');
+      span.innerHTML = '<i style="background:' + p.c + '"></i>';
+      span.appendChild(document.createTextNode(p.k + ' · ' + p.v));
+      legend.appendChild(span);
+    });
+    host.appendChild(legend);
+  }
+
+  function renderAudit(r, tookMs) {
+    $('auditResult').hidden = false;
+    var grade = r.health >= 90 ? 'Healthy' : r.health >= 75 ? 'Needs attention' : r.health >= 50 ? 'Poor' : 'Critical';
+    var tone = r.health >= 90 ? 'var(--good-text)' : r.health >= 75 ? 'var(--ink)' : 'var(--critical-text)';
+
+    renderKpis($('auditKpis'), [
+      { key: 'health', label: 'Site health', value: '<span style="color:' + tone + '">' + r.health + '<span style="font-size:15px;color:var(--ink-3)">/100</span></span>', note: grade },
+      { key: 'errors', label: 'Errors', value: fmtInt(r.counts.error), note: 'break things' },
+      { key: 'warnings', label: 'Warnings', value: fmtInt(r.counts.warning), note: 'worth fixing' },
+      { key: 'notices', label: 'Notices', value: fmtInt(r.counts.notice), note: 'nice to have' }
+    ], null, function () {});
+
+    $('auditMeta').textContent = r.crawled + ' pages · ' + (tookMs ? (tookMs / 1000).toFixed(1) + 's' : '') +
+      (r.robots.found ? ' · robots.txt found' : ' · no robots.txt');
+    auditSeverityBar(r.counts);
+
+    var host = $('auditIssues');
+    host.innerHTML = '';
+    if (!r.issues.length) {
+      host.innerHTML = '<p style="margin:0;font-size:13px;color:var(--good-text)">' +
+        'No problems found across ' + r.crawled + ' pages.</p>';
+    }
+    r.issues.forEach(function (issue) {
+      var d = document.createElement('details');
+      d.className = 'issue';
+      var sum = document.createElement('summary');
+      sum.innerHTML = '<span class="sev sev-' + issue.severity + '">' + issue.severity + '</span>' +
+        '<span class="grow"></span><span class="n"></span>';
+      sum.children[1].textContent = issue.title;
+      sum.children[2].textContent = issue.count + (issue.count === 1 ? ' page' : ' pages');
+      d.appendChild(sum);
+
+      var body = document.createElement('div');
+      body.className = 'issue-body';
+      if (issue.hint) {
+        var hint = document.createElement('p');
+        hint.className = 'issue-hint';
+        hint.textContent = issue.hint;
+        body.appendChild(hint);
+      }
+      var list = document.createElement('div');
+      list.className = 'issue-urls';
+      issue.pages.forEach(function (pg) {
+        var row = document.createElement('div');
+        row.className = 'issue-url';
+        var a = document.createElement('a');
+        a.href = pg.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = pg.url.replace(/^https?:\/\/[^/]+/, '') || '/';
+        a.title = pg.url;
+        var det = document.createElement('span');
+        det.className = 'detail';
+        det.textContent = pg.detail || '';
+        row.appendChild(a); row.appendChild(det);
+        list.appendChild(row);
+      });
+      if (issue.count > issue.pages.length) {
+        var more = document.createElement('div');
+        more.className = 'issue-url';
+        more.style.color = 'var(--ink-3)';
+        more.textContent = 'and ' + (issue.count - issue.pages.length) + ' more';
+        list.appendChild(more);
+      }
+      body.appendChild(list);
+      d.appendChild(body);
+      host.appendChild(d);
+    });
+
+    $('auditPageCount').textContent = r.pages.length + ' pages';
+    renderTable($('auditPages'), [
+      { key: 'path', label: 'Page' },
+      { key: 'status', label: 'Status' },
+      { key: 'ms', label: 'Time', fmt: function (v) { return v >= 1000 ? (v / 1000).toFixed(1) + 's' : v + 'ms'; } },
+      { key: 'words', label: 'Words', fmt: fmtInt },
+      { key: 'kb', label: 'Size', fmt: function (v) { return v ? v + ' KB' : '—'; } }
+    ], r.pages.map(function (p) {
+      return {
+        path: p.url.replace(/^https?:\/\/[^/]+/, '') || '/',
+        status: p.error || p.status,
+        ms: p.ms,
+        words: p.words,
+        kb: Math.round((p.bytes || 0) / 1024)
+      };
+    }), null, true);
+  }
+
+  function pollAudit() {
+    srv('/api/audit/status').then(function (s) {
+      if (s.state === 'running') {
+        var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
+        $('auditBar').style.width = Math.max(4, pct) + '%';
+        say('auditOut', 'Crawling — ' + s.crawled + ' of about ' + s.total + ' pages…');
+        setPill($('auditPill'), 'warn', 'Running');
+        return;
+      }
+      clearInterval(auditTimer); auditTimer = null;
+      $('auditRun').disabled = false;
+      $('auditRun').textContent = 'Run audit';
+      $('auditProgress').hidden = true;
+      if (s.state === 'error') {
+        setPill($('auditPill'), 'err', 'Failed');
+        say('auditOut', s.error, 'err');
+        return;
+      }
+      if (s.state === 'done' && s.result) {
+        setPill($('auditPill'), s.result.counts.error ? 'warn' : 'ok',
+          'Health ' + s.result.health + '/100');
+        say('auditOut', 'Finished — ' + s.result.crawled + ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', 'ok');
+        renderAudit(s.result, s.tookMs);
+      }
+    }).catch(function (e) {
+      clearInterval(auditTimer); auditTimer = null;
+      $('auditRun').disabled = false;
+      $('auditRun').textContent = 'Run audit';
+      say('auditOut', e.message, 'err');
+    });
+  }
+
+  function wireAudit() {
+    var runBtn = $('auditRun');
+    if (!runBtn) return;
+
+    runBtn.addEventListener('click', function () {
+      if (!SERVER) {
+        alertBar('auditKpis', 'The crawler lives in the Twin SEO application — a sandboxed page cannot fetch your site. ' +
+          'Run the app (Twin SEO.bat, Twin SEO.command, or twin-seo.exe) and the scan works from there.');
+        $('auditResult').hidden = false;
+        return;
+      }
+      var url = $('auditUrl').value.trim();
+      if (!url) { say('auditOut', 'Give me a URL to scan.', 'err'); return; }
+      runBtn.disabled = true;
+      runBtn.textContent = 'Scanning…';
+      $('auditProgress').hidden = false;
+      $('auditBar').style.width = '4%';
+      say('auditOut', 'Starting…');
+      srv('/api/audit/start', { url: url, maxPages: Number($('auditMax').value) })
+        .then(function () {
+          if (auditTimer) clearInterval(auditTimer);
+          auditTimer = setInterval(pollAudit, 700);
+          pollAudit();
+        })
+        .catch(function (e) {
+          runBtn.disabled = false;
+          runBtn.textContent = 'Run audit';
+          $('auditProgress').hidden = true;
+          say('auditOut', e.message, 'err');
+        });
+    });
+  }
+
   /* ── View routing ─────────────────────────────────────────── */
   var VIEW_META = {
     dashboard: {
@@ -3141,6 +3442,11 @@
       crumb: 'Google Data', tag: 'Analytics 4',
       title: 'Google Analytics 4: <span class="domain">www.twinhomebuyer.com</span>',
       strip: 'Sessions, users and engagement from the GA4 Data API.'
+    },
+    audit: {
+      crumb: 'Site Performance', tag: 'Site Audit',
+      title: 'Site Audit: <span class="domain">www.twinhomebuyer.com</span>',
+      strip: 'Crawls your pages and reports what is broken, weak, or missing.'
     },
     connections: {
       crumb: 'Google Data', tag: 'Setup',
@@ -3162,6 +3468,10 @@
     $('pageStrip').innerHTML = m.strip;
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (name === 'connections') fillForm();
+    if (name === 'audit') {
+      var f = $('auditUrl');
+      if (f && !f.value && cfg.gscSite) f.value = cfg.gscSite;
+    }
     if (name === 'gsc') renderGsc();
     if (name === 'ga4') renderGa4();
   }
@@ -3245,6 +3555,15 @@
   }
 
   wireConnections();
+  wireAudit();
+  (function seedAuditUrl() {
+    var f = $('auditUrl');
+    if (!f) return;
+    var site = (cfg.gscSite || '').replace(/^sc-domain:/, '');
+    f.value = site && /^https?:/i.test(site) ? site
+            : site ? 'https://' + site
+            : 'https://www.twinhomebuyer.com/';
+  })();
   fillForm();
 
   // Charts are sized from their host, so a resize needs a redraw.
