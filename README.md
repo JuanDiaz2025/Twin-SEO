@@ -20,6 +20,42 @@ requests) carrying the full workspace shell:
   authority-score distribution. Palette validated for colour-vision separation and
   contrast in both light and dark themes.
 
+## Phase 2 — Google Search Console & GA4
+
+Three more screens in the same page, reachable from the **Google Data** group in the menu:
+
+- **Google Search Console** — clicks, impressions, CTR and average position as clickable KPI
+  tiles that drive the chart, plus a breakdown table across Queries / Pages / Countries / Devices.
+- **Google Analytics 4** — sessions, active users, engaged sessions and engagement rate, with
+  breakdowns by Channel / Landing page / Device / Country.
+- **Connections & API keys** — where credentials go in.
+
+### Putting credentials in
+
+The connections screen takes an OAuth client ID and runs the browser token flow — no client
+secret, read-only scopes (`webmasters.readonly`, `analytics.readonly`). For a five-second test,
+paste an access token from the OAuth 2.0 Playground instead. The Search Console property picker
+fills itself from `/webmasters/v3/sites` once a token exists; GA4 needs the numeric property ID.
+A service-account JSON field exists for the future backend, with the obvious warning attached.
+
+Everything is stored in `localStorage` under `twinseo.google.v1` and is sent only to Google.
+
+Both report screens ship a **sample data** toggle so the layout is reviewable before any
+credentials exist. Sample queries and URLs are the site's real ranking set from the Semrush
+export; the click and session values are modelled, which is why those screens carry a Sample flag.
+
+### Live calls need a real origin
+
+Google rejects `file://` redirects, and the shared artifact preview blocks external requests by
+policy. Serve the file to make live calls work:
+
+```
+cd dashboard && python3 -m http.server 8080
+```
+
+Then add `http://localhost:8080/index.html` as both an authorized JavaScript origin and a
+redirect URI on the OAuth client.
+
 ### Data status
 
 Headline figures are transcribed from the Aug 11, 2026 Semrush pull. The per-day and

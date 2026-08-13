@@ -543,6 +543,112 @@
     max-width: 92ch;
   }
 
+  /* ── Views ───────────────────────────────────────────────── */
+  .view[hidden] { display: none; }
+
+  /* ── Forms / connection screens ───────────────────────────── */
+  .form-grid { display: grid; gap: 14px; }
+  .form-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .field { display: grid; gap: 5px; min-width: 0; }
+  .field > label { font-size: 12.5px; font-weight: 600; }
+  .field-hint { font-size: 11.5px; color: var(--ink-2); }
+  .field-hint code, .code {
+    font-family: var(--mono); font-size: 11px;
+    background: var(--surface-sub); border: 1px solid var(--hairline);
+    border-radius: 4px; padding: 1px 4px;
+  }
+  .input, textarea.input {
+    width: 100%; font: inherit; font-size: 13px;
+    color: var(--ink); background: var(--surface-sub);
+    border: 1px solid var(--hairline); border-radius: 7px;
+    padding: 8px 10px;
+  }
+  textarea.input { font-family: var(--mono); font-size: 11.5px; line-height: 1.5; resize: vertical; min-height: 92px; }
+  .input:focus { outline: 2px solid var(--accent-line); outline-offset: 1px; border-color: transparent; }
+  .input::placeholder { color: var(--ink-3); }
+  .input[aria-invalid="true"] { border-color: var(--critical); }
+
+  .tabs { display: flex; gap: 4px; padding: 3px; background: var(--surface-sub);
+    border: 1px solid var(--hairline); border-radius: 8px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
+  .tab { padding: 5px 10px; border-radius: 6px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+  .tabpanel[hidden] { display: none; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 600;
+    border-radius: 999px; padding: 3px 9px 3px 7px;
+    border: 1px solid var(--hairline); background: var(--surface-sub); color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .status-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); display: block; }
+  .status-pill[data-state="ok"] { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+  .status-pill[data-state="ok"] i { background: var(--good); }
+  .status-pill[data-state="warn"] { color: var(--ink); border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+  .status-pill[data-state="warn"] i { background: var(--warning); }
+  .status-pill[data-state="err"] { color: var(--critical-text); border-color: color-mix(in srgb, var(--critical) 40%, transparent); }
+  .status-pill[data-state="err"] i { background: var(--critical); }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .note {
+    display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 8px;
+    font-size: 12px; color: var(--ink-2);
+    background: var(--surface-sub); border: 1px solid var(--hairline);
+    border-left: 2px solid var(--accent-line);
+    border-radius: 7px; padding: 9px 11px;
+  }
+  .note[data-tone="warn"] { border-left-color: var(--warning); }
+  .note strong { color: var(--ink); }
+  .note-glyph { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+  .steps { counter-reset: step; display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+  .steps li {
+    counter-increment: step;
+    display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 9px;
+    font-size: 12.5px; color: var(--ink-2);
+  }
+  .steps li::before {
+    content: counter(step);
+    font-family: var(--mono); font-size: 10px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent-wash); color: var(--accent-deep);
+    display: grid; place-items: center; font-weight: 700;
+  }
+  .steps li strong { color: var(--ink); font-weight: 600; }
+
+  /* KPI row for report views */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; }
+  .kpi { padding: 2px 16px; border-left: 1px solid var(--hairline-soft); display: grid; gap: 2px; align-content: start; }
+  .kpi:first-child { border-left: 0; padding-left: 0; }
+  .kpi-val { font-size: 27px; font-weight: 650; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+  .kpi-delta { font-size: 12px; font-weight: 600; }
+  .kpi.is-active { background: var(--accent-wash); border-radius: 8px; }
+
+  .data-tbl { width: 100%; border-collapse: collapse; }
+  .data-tbl th {
+    text-align: right; font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 400;
+    padding: 0 0 7px 12px; border-bottom: 1px solid var(--hairline); white-space: nowrap;
+  }
+  .data-tbl th:first-child, .data-tbl td:first-child { text-align: left; padding-left: 0; }
+  .data-tbl td {
+    padding: 8px 0 8px 12px; font-size: 12.5px; border-bottom: 1px solid var(--hairline-soft);
+    text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .data-tbl td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .data-tbl tbody tr:hover td { background: var(--surface-sub); }
+  .bar-cell { position: relative; }
+  .bar-cell .bar {
+    position: absolute; left: 0; bottom: 2px; height: 3px; border-radius: 2px;
+    background: var(--accent-line); opacity: .35;
+  }
+
+  .sample-flag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    background: var(--warning); color: #241a00; padding: 3px 7px; border-radius: 4px; font-weight: 700;
+  }
+
   /* Nav toggle for narrow screens */
   .nav-open-btn { display: none; }
 
@@ -562,7 +668,9 @@
     .app[data-nav="closed"] .nav { display: none; }
     .main { grid-column: 2; }
     .nav-open-btn { display: inline-flex; }
-    .pair, .sub-grid { grid-template-columns: minmax(0,1fr); }
+    .pair, .sub-grid, .form-2 { grid-template-columns: minmax(0,1fr); }
+    .kpis { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px 0; }
+    .kpi:nth-child(odd) { border-left: 0; padding-left: 0; }
     .connect { grid-template-columns: minmax(0,1fr); }
     .connect-art { max-width: 220px; }
   }
@@ -603,7 +711,13 @@
     </div>
     <div id="navBody">
       <div class="nav-group">
-        <button class="nav-item" aria-current="true" data-target="w-seo"><span class="dot"></span>Dashboard</button>
+        <button class="nav-item" aria-current="true" data-view="dashboard"><span class="dot"></span>Dashboard</button>
+      </div>
+      <div class="nav-group">
+        <span class="eyebrow">Google Data</span>
+        <button class="nav-item" data-view="gsc"><span class="dot"></span>Google Search Console</button>
+        <button class="nav-item" data-view="ga4"><span class="dot"></span>Google Analytics 4</button>
+        <button class="nav-item" data-view="connections"><span class="dot"></span>Connections &amp; API keys</button>
       </div>
       <div class="nav-group">
         <span class="eyebrow">Site Performance</span>
@@ -674,9 +788,9 @@
       <div class="title-row">
         <div>
           <div class="crumbs">
-            <span class="eyebrow">Home</span><span class="eyebrow">/</span><span class="eyebrow">SEO</span>
+            <span class="eyebrow">Home</span><span class="eyebrow">/</span><span class="eyebrow" id="crumbSection">SEO</span>
           </div>
-          <h1>SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span></h1>
+          <h1 id="pageTitle">SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span></h1>
         </div>
         <div class="title-actions">
           <button class="btn">Share</button>
@@ -684,12 +798,12 @@
         </div>
       </div>
       <div class="snapshot-strip">
-        <span class="phase-tag">Phase 1</span>
-        <span>Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.</span>
+        <span class="phase-tag" id="pageTag">Phase 1</span>
+        <span id="pageStrip">Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.</span>
       </div>
     </header>
 
-    <main class="canvas">
+    <main class="canvas view" id="view-dashboard">
 
       <!-- Row 1: AI Search + SEO overview -->
       <div class="cluster cluster-top">
@@ -923,7 +1037,7 @@
                 <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v4m0 3h.01"/></svg>
                 <h4>Reconnect Google Analytics</h4>
                 <p>bryan@twinhomebuyer.com no longer has access. Reconnect the account to pull sessions, users and conversions back in.</p>
-                <button class="btn btn-primary">Reconnect Google</button>
+                <button class="btn btn-primary" data-goto="connections">Reconnect Google</button>
               </div>
             </div>
           </section>
@@ -942,7 +1056,7 @@
                 <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 9v4m0 3h.01"/></svg>
                 <h4>Reconnect Google Analytics</h4>
                 <p>Same account, same fix — page-level views resume as soon as the connection is restored.</p>
-                <button class="btn btn-primary">Reconnect Google</button>
+                <button class="btn btn-primary" data-goto="connections">Reconnect Google</button>
               </div>
             </div>
           </section>
@@ -961,6 +1075,7 @@
                 <svg class="empty-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 18h16M6 18V9m5 9V5m5 13v-6"/></svg>
                 <h4>No data in Search Console</h4>
                 <p>The property returned zero rows for this range. Verify the property URL matches the indexed www host.</p>
+                <button class="btn btn-primary" data-goto="gsc">Open Search Console</button>
               </div>
             </div>
           </section>
@@ -985,7 +1100,7 @@
                 <div>
                   <h4 style="font-size:14px;margin-bottom:5px">Enrich this dashboard with first-party data</h4>
                   <p style="margin:0 0 10px;color:var(--ink-2);font-size:12.5px;max-width:60ch">Google Analytics and Search Console fill in sessions, conversions, queries and click-through — the numbers Semrush estimates but cannot see.</p>
-                  <button class="btn btn-primary">Connect</button>
+                  <button class="btn btn-primary" data-goto="connections">Connect</button>
                   <button class="btn">Disclaimer</button>
                 </div>
               </div>
@@ -1127,6 +1242,283 @@
         per-day values. Phase 2 swaps every series for a live Semrush API read.
       </p>
     </main>
+
+    <!-- ══ Google Search Console ══════════════════════════════ -->
+    <main class="canvas view" id="view-gsc" hidden>
+      <section class="w">
+        <div class="w-head">
+          <h3>Connection</h3>
+          <div class="w-tools">
+            <span class="status-pill" id="gscPill"><i></i>Not configured</span>
+            <button class="btn" data-goto="connections">Manage connection</button>
+          </div>
+        </div>
+        <div class="w-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <span class="eyebrow">Property</span>
+          <span class="code" id="gscProp">not set</span>
+          <span class="eyebrow" style="margin-left:8px">Range</span>
+          <select class="input" id="gscRange" style="width:auto">
+            <option value="7">Last 7 days</option>
+            <option value="28" selected>Last 28 days</option>
+            <option value="90">Last 3 months</option>
+          </select>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <label style="display:flex;gap:6px;align-items:center;font-size:12.5px">
+              <input type="checkbox" id="gscSample" checked> Show sample data
+            </label>
+            <button class="btn btn-primary" id="gscFetch">Fetch from API</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="w" id="gscKpiCard">
+        <div class="w-head">
+          <h3>Performance</h3>
+          <span class="info" title="Totals for the selected range. Click a tile to plot it.">i</span>
+          <div class="w-tools"><span class="sample-flag" id="gscFlag">Sample</span></div>
+        </div>
+        <div class="w-body">
+          <div class="kpis" id="gscKpis"></div>
+          <div class="divider" style="margin:16px 0 12px"></div>
+          <div class="chart" id="gscChart"></div>
+        </div>
+      </section>
+
+      <section class="w">
+        <div class="w-head">
+          <h3>Breakdown</h3>
+          <div class="w-tools">
+            <div class="tabs" id="gscTabs" role="tablist">
+              <button class="tab" role="tab" aria-selected="true" data-dim="query">Queries</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="page">Pages</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="country">Countries</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="device">Devices</button>
+            </div>
+          </div>
+        </div>
+        <div class="w-body">
+          <div style="overflow-x:auto">
+            <table class="data-tbl" id="gscTable"></table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ══ Google Analytics 4 ════════════════════════════════ -->
+    <main class="canvas view" id="view-ga4" hidden>
+      <section class="w">
+        <div class="w-head">
+          <h3>Connection</h3>
+          <div class="w-tools">
+            <span class="status-pill" id="ga4Pill"><i></i>Not configured</span>
+            <button class="btn" data-goto="connections">Manage connection</button>
+          </div>
+        </div>
+        <div class="w-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <span class="eyebrow">Property</span>
+          <span class="code" id="ga4Prop">not set</span>
+          <span class="eyebrow" style="margin-left:8px">Range</span>
+          <select class="input" id="ga4Range" style="width:auto">
+            <option value="7">Last 7 days</option>
+            <option value="28" selected>Last 28 days</option>
+            <option value="90">Last 3 months</option>
+          </select>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <label style="display:flex;gap:6px;align-items:center;font-size:12.5px">
+              <input type="checkbox" id="ga4Sample" checked> Show sample data
+            </label>
+            <button class="btn btn-primary" id="ga4Fetch">Fetch from API</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="w">
+        <div class="w-head">
+          <h3>Traffic</h3>
+          <span class="info" title="GA4 Data API metrics for the selected range. Click a tile to plot it.">i</span>
+          <div class="w-tools"><span class="sample-flag" id="ga4Flag">Sample</span></div>
+        </div>
+        <div class="w-body">
+          <div class="kpis" id="ga4Kpis"></div>
+          <div class="divider" style="margin:16px 0 12px"></div>
+          <div class="chart" id="ga4Chart"></div>
+        </div>
+      </section>
+
+      <section class="w">
+        <div class="w-head">
+          <h3>Breakdown</h3>
+          <div class="w-tools">
+            <div class="tabs" id="ga4Tabs" role="tablist">
+              <button class="tab" role="tab" aria-selected="true" data-dim="channel">Channels</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="landing">Landing pages</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="device">Devices</button>
+              <button class="tab" role="tab" aria-selected="false" data-dim="country">Countries</button>
+            </div>
+          </div>
+        </div>
+        <div class="w-body">
+          <div style="overflow-x:auto">
+            <table class="data-tbl" id="ga4Table"></table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ══ Connections ═══════════════════════════════════════ -->
+    <main class="canvas view" id="view-connections" hidden>
+      <div class="cluster">
+        <div class="col">
+
+          <section class="w">
+            <div class="w-head">
+              <h3>Google Cloud project</h3>
+              <span class="info" title="One OAuth client covers both Search Console and Analytics.">i</span>
+              <div class="w-tools"><span class="status-pill" id="tokenPill"><i></i>No token</span></div>
+            </div>
+            <div class="w-body">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="fClientId">OAuth client ID</label>
+                  <input class="input" id="fClientId" type="text" spellcheck="false"
+                         placeholder="123456789-abcdefg.apps.googleusercontent.com">
+                  <span class="field-hint">Web application client from Google Cloud → APIs &amp; Services → Credentials. No client secret needed — this page uses the browser token flow.</span>
+                </div>
+                <div class="field">
+                  <label>Authorized JavaScript origin &amp; redirect URI</label>
+                  <span class="code" id="fOrigin" style="padding:8px 10px;display:block;overflow-x:auto"></span>
+                  <span class="field-hint">Paste this exact value into both fields on the OAuth client, or Google rejects the sign-in.</span>
+                </div>
+                <div class="field">
+                  <label>Scopes requested</label>
+                  <span class="field-hint">
+                    <code>webmasters.readonly</code> for Search Console ·
+                    <code>analytics.readonly</code> for GA4. Read-only — this page never writes to either property.
+                  </span>
+                </div>
+                <div class="actions">
+                  <button class="btn btn-primary" id="btnConnect">Connect with Google</button>
+                  <button class="btn" id="btnDisconnect">Sign out</button>
+                  <span class="field-hint" id="tokenInfo"></span>
+                </div>
+              </div>
+
+              <div class="divider" style="margin:16px 0"></div>
+
+              <div class="field">
+                <label for="fToken">Or paste an access token</label>
+                <input class="input" id="fToken" type="text" spellcheck="false" placeholder="ya29.a0Af…">
+                <span class="field-hint">Fastest way to test: grab a token from the OAuth 2.0 Playground with both read-only scopes. Tokens expire after about an hour.</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
+              <h3>Google Search Console</h3>
+              <div class="w-tools"><span class="status-pill" id="gscPill2"><i></i>Not configured</span></div>
+            </div>
+            <div class="w-body">
+              <div class="form-grid form-2">
+                <div class="field">
+                  <label for="fGscSite">Property</label>
+                  <input class="input" id="fGscSite" type="text" spellcheck="false"
+                         placeholder="https://www.twinhomebuyer.com/">
+                  <span class="field-hint">Must match Search Console exactly. Domain properties use <code>sc-domain:twinhomebuyer.com</code>.</span>
+                </div>
+                <div class="field">
+                  <label for="fGscPick">Properties on this account</label>
+                  <select class="input" id="fGscPick"><option value="">Connect to list them</option></select>
+                  <span class="field-hint">Loaded from <code>/webmasters/v3/sites</code> once a token is present.</span>
+                </div>
+              </div>
+              <div class="actions" style="margin-top:14px">
+                <button class="btn" id="btnTestGsc">Test connection</button>
+                <span class="field-hint" id="gscTestOut"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
+              <h3>Google Analytics 4</h3>
+              <div class="w-tools"><span class="status-pill" id="ga4Pill2"><i></i>Not configured</span></div>
+            </div>
+            <div class="w-body">
+              <div class="form-grid form-2">
+                <div class="field">
+                  <label for="fGa4Prop">Property ID</label>
+                  <input class="input" id="fGa4Prop" type="text" inputmode="numeric" spellcheck="false" placeholder="123456789">
+                  <span class="field-hint">Numbers only. GA4 → Admin → Property details. Not the <code>G-</code> measurement ID.</span>
+                </div>
+                <div class="field">
+                  <label for="fGa4Meas">Measurement ID <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label>
+                  <input class="input" id="fGa4Meas" type="text" spellcheck="false" placeholder="G-XXXXXXXXXX">
+                  <span class="field-hint">Recorded for reference — the Data API keys off the property ID.</span>
+                </div>
+              </div>
+              <div class="actions" style="margin-top:14px">
+                <button class="btn" id="btnTestGa4">Test connection</button>
+                <span class="field-hint" id="ga4TestOut"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
+              <h3>Service account <span style="font-weight:400;color:var(--ink-3)">— for the phase 2 backend</span></h3>
+            </div>
+            <div class="w-body">
+              <div class="note" data-tone="warn">
+                <span class="note-glyph">!</span>
+                <span><strong>A private key does not belong in a browser.</strong> Anything pasted here stays in this
+                browser's local storage and is never sent anywhere — but the right home for it is a server-side secret
+                store. Use the OAuth flow above for anything you run from this page.</span>
+              </div>
+              <div class="field" style="margin-top:12px">
+                <label for="fSa">Service account JSON</label>
+                <textarea class="input" id="fSa" spellcheck="false" placeholder='{ "type": "service_account", "project_id": "…", "client_email": "…", "private_key": "…" }'></textarea>
+                <span class="field-hint">Grant the service account's <code>client_email</code> read access in both Search Console and GA4 before it can pull anything.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="w">
+            <div class="w-head"><h3>Saved configuration</h3></div>
+            <div class="w-body">
+              <div class="actions" style="margin-bottom:10px">
+                <button class="btn btn-primary" id="btnSave">Save</button>
+                <button class="btn" id="btnCopy">Copy JSON</button>
+                <button class="btn" id="btnClear">Clear all</button>
+              </div>
+              <span class="field-hint" id="saveOut">Stored in this browser only.</span>
+              <textarea class="input" id="cfgOut" readonly rows="10" style="margin-top:10px"></textarea>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head"><h3>Setup, once</h3></div>
+            <div class="w-body">
+              <ol class="steps">
+                <li><span><strong>Enable two APIs</strong> in your Google Cloud project: Google Search Console API and Google Analytics Data API.</span></li>
+                <li><span><strong>Create an OAuth client</strong> of type Web application, and add the origin shown above as both an authorized origin and a redirect URI.</span></li>
+                <li><span><strong>Paste the client ID</strong> above and hit Connect with Google.</span></li>
+                <li><span><strong>Fill the property fields</strong> — the Search Console picker fills itself once a token exists.</span></li>
+                <li><span><strong>Save</strong>, then open the Search Console and Analytics screens and turn off sample data.</span></li>
+              </ol>
+              <div class="note" style="margin-top:14px">
+                <span class="note-glyph">i</span>
+                <span>Google's endpoints are blocked in the shared artifact preview by its content-security policy.
+                Run <code>dashboard/index.html</code> from a local server or your own host for live calls — the saved
+                configuration and the whole interface work either way.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
   </div>
 </div>
 
@@ -1190,6 +1582,7 @@
   ];
 
   var SVGNS = 'http://www.w3.org/2000/svg';
+  var gradSeq = 0;
   function el(tag, attrs) {
     var n = document.createElementNS(SVGNS, tag);
     for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
@@ -1224,7 +1617,8 @@
   /* ── Area chart (line + fill + crosshair) ─────────────────── */
   function areaChart(host, cfg) {
     host.innerHTML = '';
-    var W = 320, H = cfg.height || 116;
+    // Match the viewBox to the rendered width so labels stay at their real size
+    var W = Math.max(240, Math.round(cfg.width || host.clientWidth || 320)), H = cfg.height || 116;
     var pad = { t: 8, r: 6, b: 18, l: 30 };
     var vals = cfg.values, n = vals.length;
     var lo = cfg.min != null ? cfg.min : Math.min.apply(null, vals);
@@ -1248,7 +1642,7 @@
     }
     a = d + 'L' + x(n - 1).toFixed(1) + ' ' + y(lo) + ' L' + x(0) + ' ' + y(lo) + ' Z';
 
-    var gid = 'g' + Math.abs(cfg.aria.length * 977 % 9999);
+    var gid = 'grad' + (++gradSeq);
     var defs = el('defs');
     var lg = el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 });
     var s1 = el('stop', { offset: '0%', 'stop-color': css('--accent-line'), 'stop-opacity': .22 });
@@ -1309,7 +1703,7 @@
   /* ── Diverging column chart ───────────────────────────────── */
   function divergingChart(host, cfg) {
     host.innerHTML = '';
-    var W = 320, H = 104, pad = { t: 6, r: 6, b: 18, l: 30 };
+    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 104, pad = { t: 6, r: 6, b: 18, l: 30 };
     var n = cfg.up.length;
     var maxUp = Math.max.apply(null, cfg.up) || 1;
     var maxDown = Math.max.apply(null, cfg.down) || 1;
@@ -1446,7 +1840,7 @@
       { k: 'Potentially toxic', v: 4, pct: 5.7, c: css('--warning') },
       { k: 'Non-toxic', v: 53, pct: 75.7, c: css('--good') }
     ];
-    var W = 320, H = 14, gap = 2, total = 70;
+    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 14, gap = 2, total = 70;
     var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
       'aria-label': 'Referring domain toxicity: 13 toxic, 4 potentially toxic, 53 non-toxic of 70' });
     var x = 0;
@@ -1692,5 +2086,765 @@
     };
   }
   wireSearch();
+
+  /* ═══════════════════════════════════════════════════════════
+     Google data — routing, credentials, and the two API clients
+     ═══════════════════════════════════════════════════════════ */
+
+  var SCOPES = 'https://www.googleapis.com/auth/webmasters.readonly ' +
+               'https://www.googleapis.com/auth/analytics.readonly';
+
+  /* ── Config storage (this browser only) ───────────────────── */
+  var CFG_KEY = 'twinseo.google.v1';
+  var cfg = (function load() {
+    var d = { clientId: '', gscSite: '', ga4Property: '', ga4Measurement: '',
+              serviceAccount: '', token: '', tokenExp: 0, tokenSource: '' };
+    try {
+      var raw = window.localStorage && localStorage.getItem(CFG_KEY);
+      if (raw) { var p = JSON.parse(raw); for (var k in d) if (p[k] != null) d[k] = p[k]; }
+    } catch (e) { /* storage unavailable — fall back to memory */ }
+    return d;
+  })();
+
+  function saveCfg() {
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); return true; }
+    catch (e) { return false; }
+  }
+
+  function tokenLive() {
+    if (!cfg.token) return false;
+    return !cfg.tokenExp || cfg.tokenExp > Date.now();
+  }
+
+  // Returning from Google's consent redirect: pick the token out of the fragment.
+  (function captureToken() {
+    if (!location.hash || location.hash.indexOf('access_token=') < 0) return;
+    var p = new URLSearchParams(location.hash.replace(/^#/, ''));
+    var t = p.get('access_token');
+    if (!t) return;
+    cfg.token = t;
+    cfg.tokenExp = Date.now() + (parseInt(p.get('expires_in'), 10) || 3600) * 1000;
+    cfg.tokenSource = 'oauth';
+    saveCfg();
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  })();
+
+  /* ── Small helpers ────────────────────────────────────────── */
+  function $(id) { return document.getElementById(id); }
+  function fmtInt(n) { return Math.round(n).toLocaleString('en-US'); }
+  function fmtPct(n, d) { return (n).toFixed(d == null ? 2 : d) + '%'; }
+  function fmtPos(n) { return n.toFixed(1); }
+  function dayOffset(n) {
+    var d = new Date(); d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function shortDate(iso) {
+    var p = String(iso).split('-');
+    return MONTHS[(parseInt(p[1], 10) || 1) - 1] + ' ' + parseInt(p[2], 10);
+  }
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    var mag = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+    return Math.ceil(v / mag) * mag;   // keeps the midpoint a whole number
+  }
+  function setPill(el, state, label) {
+    if (!el) return;
+    el.setAttribute('data-state', state);
+    el.innerHTML = '<i></i>';
+    el.appendChild(document.createTextNode(label));
+  }
+  function say(id, msg, tone) {
+    var el = $(id); if (!el) return;
+    el.textContent = msg;
+    el.style.color = tone === 'err' ? 'var(--critical-text)' : (tone === 'ok' ? 'var(--good-text)' : 'var(--ink-2)');
+  }
+
+  /* ── The API layer ────────────────────────────────────────── */
+  function api(url, body) {
+    if (!tokenLive()) {
+      return Promise.reject(new Error('No live access token. Connect on the Connections screen, or paste one.'));
+    }
+    var opts = { headers: { Authorization: 'Bearer ' + cfg.token } };
+    if (body) {
+      opts.method = 'POST';
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(url, opts).then(function (r) {
+      return r.text().then(function (txt) {
+        var data = null;
+        try { data = JSON.parse(txt); } catch (e) { /* non-JSON error body */ }
+        if (!r.ok) {
+          var msg = (data && data.error && (data.error.message || data.error.error_description)) || ('HTTP ' + r.status);
+          if (r.status === 401) msg = 'Token expired or rejected — reconnect on the Connections screen.';
+          else if (r.status === 403) msg = 'Access denied. ' + msg + ' Check this account can read the property and that the API is enabled.';
+          else if (r.status === 404) msg = 'Not found. ' + msg + ' Check the property value matches exactly.';
+          throw new Error(msg);
+        }
+        return data;
+      });
+    }, function () {
+      throw new Error('Request blocked before it reached Google. The shared artifact preview forbids external calls — run this file from a local server or your own host.');
+    });
+  }
+
+  function gscQuery(dims, days, limit) {
+    if (!cfg.gscSite) return Promise.reject(new Error('No Search Console property set.'));
+    return api('https://searchconsole.googleapis.com/webmasters/v3/sites/' +
+      encodeURIComponent(cfg.gscSite) + '/searchAnalytics/query', {
+        startDate: dayOffset(-(days + 2)),
+        endDate: dayOffset(-2),           // Search Console data lags ~2 days
+        dimensions: dims,
+        rowLimit: limit || 25
+      });
+  }
+
+  function ga4Report(dims, metrics, days, limit, orderBy) {
+    if (!cfg.ga4Property) return Promise.reject(new Error('No GA4 property ID set.'));
+    var body = {
+      dateRanges: [{ startDate: days + 'daysAgo', endDate: 'yesterday' }],
+      dimensions: dims.map(function (d) { return { name: d }; }),
+      metrics: metrics.map(function (m) { return { name: m }; }),
+      limit: limit || 25
+    };
+    if (orderBy) body.orderBys = [{ desc: true, metric: { metricName: orderBy } }];
+    return api('https://analyticsdata.googleapis.com/v1beta/properties/' +
+      encodeURIComponent(String(cfg.ga4Property).replace(/^properties\//, '')) + ':runReport', body);
+  }
+
+  /* ── Sample data ──────────────────────────────────────────
+     Queries and URLs are the site's real ranking set from the
+     Semrush export; the click and session values are modelled,
+     which is why every screen using them carries a Sample flag.
+     ─────────────────────────────────────────────────────────── */
+  function rng(seed) {
+    var s = seed;
+    return function () { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  }
+
+  function sampleSeries(days, base, spread, seed) {
+    var r = rng(seed), out = [], labels = [];
+    for (var i = days - 1; i >= 0; i--) {
+      var iso = dayOffset(-(i + 2));
+      var dow = new Date(iso + 'T12:00:00').getDay();
+      var weekend = (dow === 0 || dow === 6) ? 0.62 : 1;
+      var drift = 1 + (days - i) / days * 0.18;
+      out.push(Math.max(0, Math.round(base * weekend * drift + (r() - 0.5) * spread)));
+      labels.push(iso);
+    }
+    return { values: out, labels: labels };
+  }
+
+  var SAMPLE_QUERIES = [
+    ['cash buyers', 10, 4400], ['cash buyer', 4, 880], ['equity track inc', 5, 320],
+    ['cashbuyers', 8, 260], ['twin home buyer', 1, 210], ['cash home buyers in california', 6, 210],
+    ['sell my house fast dixon', 2, 170], ['we buy houses san francisco', 1, 170],
+    ['sell my house fast san jose', 5, 170], ['we buy houses cash california', 6, 170],
+    ['sell my house fast concord', 1, 140], ['seismic retrofit san francisco', 5, 140],
+    ['cash home buyers california', 6, 140], ['cash home buyers san francisco', 7, 110],
+    ['sell my house fast concord ca', 1, 90], ['we buy houses cash union city', 1, 40]
+  ];
+
+  var SAMPLE_PAGES = [
+    ['/how-cash-home-buyers-work-california/', 1420], ['/', 1180],
+    ['/we-buy-houses-in-concord-ca/', 640], ['/sell-my-house-fast-san-francisco-cash-buyers-2025/', 470],
+    ['/sell-my-house-fast-dixon/', 380], ['/we-buy-houses-san-jose-ca/', 300],
+    ['/seismic-retrofit-costs-in-san-francisco-a-comprehensive-guide-2025-update/', 260],
+    ['/equity-track-inc-powered-by-twin-home-buyer/', 210],
+    ['/we-buy-houses-in-union-city/', 150], ['/sell-your-house-fast/', 120]
+  ];
+
+  function gscSample(days) {
+    var imp = sampleSeries(days, 320, 90, 4021);
+    var clicks = imp.values.map(function (v, i) {
+      return Math.max(0, Math.round(v * (0.021 + (i % 5) * 0.0035)));
+    });
+    var r = rng(77);
+    var rows = {
+      query: SAMPLE_QUERIES.map(function (q) {
+        var impressions = Math.round(q[2] * (0.10 + r() * 0.16) * (days / 28));
+        var ctr = q[1] <= 3 ? 0.11 + r() * 0.09 : (q[1] <= 7 ? 0.035 + r() * 0.04 : 0.008 + r() * 0.02);
+        return { key: q[0], clicks: Math.round(impressions * ctr), impressions: impressions,
+                 ctr: ctr * 100, position: q[1] + (r() - 0.5) * 1.4 };
+      }),
+      page: SAMPLE_PAGES.map(function (p) {
+        var impressions = Math.round(p[1] * (days / 28) * (0.7 + r() * 0.5));
+        var ctr = 0.015 + r() * 0.05;
+        return { key: p[0], clicks: Math.round(impressions * ctr), impressions: impressions,
+                 ctr: ctr * 100, position: 3 + r() * 14 };
+      }),
+      country: [
+        { key: 'United States', clicks: 0, impressions: 0, ctr: 0, position: 0 },
+        { key: 'Canada', clicks: 0, impressions: 0, ctr: 0, position: 0 },
+        { key: 'India', clicks: 0, impressions: 0, ctr: 0, position: 0 },
+        { key: 'United Kingdom', clicks: 0, impressions: 0, ctr: 0, position: 0 }
+      ],
+      device: [
+        { key: 'Mobile', clicks: 0, impressions: 0, ctr: 0, position: 0 },
+        { key: 'Desktop', clicks: 0, impressions: 0, ctr: 0, position: 0 },
+        { key: 'Tablet', clicks: 0, impressions: 0, ctr: 0, position: 0 }
+      ]
+    };
+    var totalC = clicks.reduce(function (a, b) { return a + b; }, 0);
+    var totalI = imp.values.reduce(function (a, b) { return a + b; }, 0);
+    [[rows.country, [0.86, 0.07, 0.04, 0.03]], [rows.device, [0.61, 0.35, 0.04]]].forEach(function (pair) {
+      pair[0].forEach(function (row, i) {
+        var share = pair[1][i];
+        row.clicks = Math.round(totalC * share);
+        row.impressions = Math.round(totalI * share);
+        row.ctr = row.impressions ? row.clicks / row.impressions * 100 : 0;
+        row.position = 14 + i * 2.6;
+      });
+    });
+    Object.keys(rows).forEach(function (k) {
+      rows[k].sort(function (a, b) { return b.clicks - a.clicks; });
+    });
+    return {
+      sample: true,
+      labels: imp.labels,
+      series: { clicks: clicks, impressions: imp.values },
+      totals: {
+        clicks: totalC, impressions: totalI,
+        ctr: totalI ? totalC / totalI * 100 : 0,
+        position: 18.4
+      },
+      rows: rows
+    };
+  }
+
+  function ga4Sample(days) {
+    var sessions = sampleSeries(days, 46, 22, 9137);
+    var users = sessions.values.map(function (v) { return Math.round(v * 0.86); });
+    var engaged = sessions.values.map(function (v) { return Math.round(v * 0.58); });
+    var total = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
+    var r = rng(311), tS = total(sessions.values);
+    function split(names, shares) {
+      return names.map(function (n, i) {
+        var s = Math.round(tS * shares[i]);
+        return { key: n, sessions: s, users: Math.round(s * (0.8 + r() * 0.12)),
+                 engagement: (46 + r() * 26), conversions: Math.round(s * (0.004 + r() * 0.02)) };
+      });
+    }
+    return {
+      sample: true,
+      labels: sessions.labels,
+      series: { sessions: sessions.values, users: users, engaged: engaged },
+      totals: {
+        sessions: tS, users: total(users), engaged: total(engaged),
+        rate: tS ? total(engaged) / tS * 100 : 0
+      },
+      rows: {
+        channel: split(['Organic Search', 'Direct', 'Paid Search', 'Referral', 'Organic Social', 'Unassigned'],
+                       [0.44, 0.26, 0.12, 0.09, 0.06, 0.03]),
+        landing: split(SAMPLE_PAGES.slice(0, 6).map(function (p) { return p[0]; }),
+                       [0.29, 0.24, 0.16, 0.13, 0.11, 0.07]),
+        device: split(['mobile', 'desktop', 'tablet'], [0.64, 0.33, 0.03]),
+        country: split(['United States', 'Canada', 'Philippines', 'India'], [0.88, 0.05, 0.04, 0.03])
+      }
+    };
+  }
+
+  /* ── Shared renderers ─────────────────────────────────────── */
+  function renderKpis(host, defs, activeKey, onPick) {
+    host.innerHTML = '';
+    defs.forEach(function (d) {
+      var tile = document.createElement(d.plot ? 'button' : 'div');
+      tile.className = 'kpi' + (d.plot && d.key === activeKey ? ' is-active' : '');
+      if (d.plot) {
+        tile.setAttribute('aria-pressed', d.key === activeKey ? 'true' : 'false');
+        tile.style.textAlign = 'left';
+        tile.addEventListener('click', function () { onPick(d.key); });
+      }
+      tile.innerHTML = '<span class="eyebrow">' + d.label + '</span>' +
+        '<span class="kpi-val">' + d.value + '</span>' +
+        (d.note ? '<span class="metric-note">' + d.note + '</span>' : '');
+      host.appendChild(tile);
+    });
+  }
+
+  function renderTable(table, cols, rows, emptyMsg) {
+    table.innerHTML = '';
+    if (!rows || !rows.length) {
+      table.innerHTML = '<tbody><tr><td style="color:var(--ink-3);border:0;padding:18px 0">' +
+        (emptyMsg || 'No rows returned for this range.') + '</td></tr></tbody>';
+      return;
+    }
+    var head = document.createElement('thead'), hr = document.createElement('tr');
+    cols.forEach(function (c) {
+      var th = document.createElement('th');
+      th.textContent = c.label;
+      th.scope = 'col';
+      hr.appendChild(th);
+    });
+    head.appendChild(hr); table.appendChild(head);
+
+    var max = Math.max.apply(null, rows.map(function (r) { return r[cols[1].key] || 0; })) || 1;
+    var body = document.createElement('tbody');
+    rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      cols.forEach(function (c, i) {
+        var td = document.createElement('td');
+        if (i === 0) {
+          td.className = 'bar-cell';
+          td.title = String(r[c.key]);
+          td.appendChild(document.createTextNode(r[c.key]));
+          var bar = document.createElement('span');
+          bar.className = 'bar';
+          bar.style.width = Math.max(2, (r[cols[1].key] || 0) / max * 100) + '%';
+          td.appendChild(bar);
+        } else {
+          td.textContent = c.fmt ? c.fmt(r[c.key]) : r[c.key];
+        }
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+  }
+
+  function plot(hostId, labels, values, label, fmt) {
+    var host = $(hostId);
+    if (!host) return;
+    var hi = niceMax(Math.max.apply(null, values) || 1);
+    areaChart(host, {
+      values: values,
+      labels: labels.map(shortDate),
+      ticks: [0, Math.floor(labels.length / 3), Math.floor(labels.length * 2 / 3), labels.length - 1]
+        .filter(function (v, i, a) { return a.indexOf(v) === i; })
+        .map(function (i) { return shortDate(labels[i]); }),
+      min: 0, max: hi, gridValues: [0, hi / 2, hi], height: 150,
+      aria: label + ' over the selected range',
+      format: function (v) { return (fmt ? fmt(v) : fmtInt(v)) + ' ' + label.toLowerCase(); }
+    });
+  }
+
+  /* ── Search Console screen ────────────────────────────────── */
+  var gsc = { data: null, metric: 'clicks', dim: 'query', busy: false };
+
+  function gscRefreshChrome() {
+    var configured = !!cfg.gscSite;
+    var label = !configured ? 'Not configured' : (tokenLive() ? 'Ready' : 'Property set · no token');
+    var state = !configured ? 'off' : (tokenLive() ? 'ok' : 'warn');
+    setPill($('gscPill'), state, label);
+    setPill($('gscPill2'), state, label);
+    var p = $('gscProp'); if (p) p.textContent = cfg.gscSite || 'not set';
+  }
+
+  function renderGsc() {
+    gscRefreshChrome();
+    var d = gsc.data || ($('gscSample').checked ? gscSample(parseInt($('gscRange').value, 10)) : null);
+    gsc.data = d;
+    $('gscFlag').hidden = !(d && d.sample);
+    if (!d) {
+      $('gscKpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0">' +
+        'No data loaded. Tick “Show sample data” to preview the layout, or connect and hit Fetch from API.</p>';
+      $('gscChart').innerHTML = '';
+      renderTable($('gscTable'), [{ key: 'key', label: 'Query' }, { key: 'clicks', label: 'Clicks' }], [], 'Nothing loaded yet.');
+      return;
+    }
+    renderKpis($('gscKpis'), [
+      { key: 'clicks', label: 'Total clicks', value: fmtInt(d.totals.clicks), plot: true },
+      { key: 'impressions', label: 'Total impressions', value: fmtInt(d.totals.impressions), plot: true },
+      { key: 'ctr', label: 'Average CTR', value: fmtPct(d.totals.ctr), plot: false },
+      { key: 'position', label: 'Average position', value: fmtPos(d.totals.position), plot: false }
+    ], gsc.metric, function (k) { gsc.metric = k; renderGsc(); });
+
+    plot('gscChart', d.labels, d.series[gsc.metric] || d.series.clicks,
+      gsc.metric === 'impressions' ? 'Impressions' : 'Clicks');
+
+    var dimLabel = { query: 'Query', page: 'Page', country: 'Country', device: 'Device' }[gsc.dim];
+    renderTable($('gscTable'), [
+      { key: 'key', label: dimLabel },
+      { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+      { key: 'impressions', label: 'Impressions', fmt: fmtInt },
+      { key: 'ctr', label: 'CTR', fmt: function (v) { return fmtPct(v); } },
+      { key: 'position', label: 'Position', fmt: fmtPos }
+    ], d.rows[gsc.dim]);
+  }
+
+  function gscFetch() {
+    if (gsc.busy) return;
+    var days = parseInt($('gscRange').value, 10);
+    gsc.busy = true;
+    $('gscFetch').textContent = 'Fetching…';
+    Promise.all([gscQuery(['date'], days, 400), gscQuery([gsc.dim], days, 25)])
+      .then(function (res) {
+        var byDate = (res[0].rows || []).slice().sort(function (a, b) {
+          return a.keys[0] < b.keys[0] ? -1 : 1;
+        });
+        var totals = byDate.reduce(function (a, r) {
+          a.clicks += r.clicks; a.impressions += r.impressions;
+          a.posW += (r.position || 0) * (r.impressions || 0); return a;
+        }, { clicks: 0, impressions: 0, posW: 0 });
+        var rows = (res[1].rows || []).map(function (r) {
+          return { key: r.keys[0], clicks: r.clicks, impressions: r.impressions,
+                   ctr: (r.ctr || 0) * 100, position: r.position };
+        });
+        var store = gsc.data && !gsc.data.sample ? gsc.data : { rows: {} };
+        gsc.data = {
+          sample: false,
+          labels: byDate.map(function (r) { return r.keys[0]; }),
+          series: {
+            clicks: byDate.map(function (r) { return r.clicks; }),
+            impressions: byDate.map(function (r) { return r.impressions; })
+          },
+          totals: {
+            clicks: totals.clicks, impressions: totals.impressions,
+            ctr: totals.impressions ? totals.clicks / totals.impressions * 100 : 0,
+            position: totals.impressions ? totals.posW / totals.impressions : 0
+          },
+          rows: Object.assign({ query: [], page: [], country: [], device: [] }, store.rows)
+        };
+        gsc.data.rows[gsc.dim] = rows;
+        $('gscSample').checked = false;
+        renderGsc();
+        say('saveOut', '', '');
+      })
+      .catch(function (err) {
+        alertBar('gscKpis', err.message);
+      })
+      .then(function () { gsc.busy = false; $('gscFetch').textContent = 'Fetch from API'; });
+  }
+
+  function alertBar(hostId, msg) {
+    var host = $(hostId);
+    if (!host) return;
+    var bar = document.createElement('div');
+    bar.className = 'note';
+    bar.setAttribute('data-tone', 'warn');
+    bar.style.gridColumn = '1 / -1';
+    bar.innerHTML = '<span class="note-glyph">!</span><span></span>';
+    bar.lastChild.textContent = msg;
+    host.insertBefore(bar, host.firstChild);
+  }
+
+  /* ── GA4 screen ───────────────────────────────────────────── */
+  var ga4 = { data: null, metric: 'sessions', dim: 'channel', busy: false };
+
+  function ga4RefreshChrome() {
+    var configured = !!cfg.ga4Property;
+    var label = !configured ? 'Not configured' : (tokenLive() ? 'Ready' : 'Property set · no token');
+    var state = !configured ? 'off' : (tokenLive() ? 'ok' : 'warn');
+    setPill($('ga4Pill'), state, label);
+    setPill($('ga4Pill2'), state, label);
+    var p = $('ga4Prop');
+    if (p) p.textContent = cfg.ga4Property ? 'properties/' + cfg.ga4Property : 'not set';
+  }
+
+  function renderGa4() {
+    ga4RefreshChrome();
+    var d = ga4.data || ($('ga4Sample').checked ? ga4Sample(parseInt($('ga4Range').value, 10)) : null);
+    ga4.data = d;
+    $('ga4Flag').hidden = !(d && d.sample);
+    if (!d) {
+      $('ga4Kpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0">' +
+        'No data loaded. Tick “Show sample data” to preview the layout, or connect and hit Fetch from API.</p>';
+      $('ga4Chart').innerHTML = '';
+      renderTable($('ga4Table'), [{ key: 'key', label: 'Channel' }, { key: 'sessions', label: 'Sessions' }], [], 'Nothing loaded yet.');
+      return;
+    }
+    renderKpis($('ga4Kpis'), [
+      { key: 'sessions', label: 'Sessions', value: fmtInt(d.totals.sessions), plot: true },
+      { key: 'users', label: 'Active users', value: fmtInt(d.totals.users), plot: true },
+      { key: 'engaged', label: 'Engaged sessions', value: fmtInt(d.totals.engaged), plot: true },
+      { key: 'rate', label: 'Engagement rate', value: fmtPct(d.totals.rate, 1), plot: false }
+    ], ga4.metric, function (k) { ga4.metric = k; renderGa4(); });
+
+    var name = { sessions: 'Sessions', users: 'Active users', engaged: 'Engaged sessions' }[ga4.metric] || 'Sessions';
+    plot('ga4Chart', d.labels, d.series[ga4.metric] || d.series.sessions, name);
+
+    var dimLabel = { channel: 'Channel', landing: 'Landing page', device: 'Device', country: 'Country' }[ga4.dim];
+    renderTable($('ga4Table'), [
+      { key: 'key', label: dimLabel },
+      { key: 'sessions', label: 'Sessions', fmt: fmtInt },
+      { key: 'users', label: 'Users', fmt: fmtInt },
+      { key: 'engagement', label: 'Engagement', fmt: function (v) { return fmtPct(v, 1); } },
+      { key: 'conversions', label: 'Key events', fmt: fmtInt }
+    ], d.rows[ga4.dim]);
+  }
+
+  var GA4_DIMS = { channel: 'sessionDefaultChannelGroup', landing: 'landingPage', device: 'deviceCategory', country: 'country' };
+
+  function ga4Fetch() {
+    if (ga4.busy) return;
+    var days = parseInt($('ga4Range').value, 10);
+    ga4.busy = true;
+    $('ga4Fetch').textContent = 'Fetching…';
+    Promise.all([
+      ga4Report(['date'], ['sessions', 'activeUsers', 'engagedSessions'], days, 400),
+      ga4Report([GA4_DIMS[ga4.dim]], ['sessions', 'activeUsers', 'engagementRate', 'keyEvents'], days, 25, 'sessions')
+    ]).then(function (res) {
+      var byDate = (res[0].rows || []).slice().sort(function (a, b) {
+        return a.dimensionValues[0].value < b.dimensionValues[0].value ? -1 : 1;
+      });
+      var num = function (r, i) { return parseFloat(r.metricValues[i].value) || 0; };
+      var series = {
+        sessions: byDate.map(function (r) { return num(r, 0); }),
+        users: byDate.map(function (r) { return num(r, 1); }),
+        engaged: byDate.map(function (r) { return num(r, 2); })
+      };
+      var sum = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
+      var rows = (res[1].rows || []).map(function (r) {
+        return {
+          key: r.dimensionValues[0].value,
+          sessions: num(r, 0), users: num(r, 1),
+          engagement: num(r, 2) * 100, conversions: num(r, 3)
+        };
+      });
+      var store = ga4.data && !ga4.data.sample ? ga4.data : { rows: {} };
+      ga4.data = {
+        sample: false,
+        labels: byDate.map(function (r) {
+          var v = r.dimensionValues[0].value;   // GA4 returns YYYYMMDD
+          return v.slice(0, 4) + '-' + v.slice(4, 6) + '-' + v.slice(6, 8);
+        }),
+        series: series,
+        totals: {
+          sessions: sum(series.sessions), users: sum(series.users), engaged: sum(series.engaged),
+          rate: sum(series.sessions) ? sum(series.engaged) / sum(series.sessions) * 100 : 0
+        },
+        rows: Object.assign({ channel: [], landing: [], device: [], country: [] }, store.rows)
+      };
+      ga4.data.rows[ga4.dim] = rows;
+      $('ga4Sample').checked = false;
+      renderGa4();
+    }).catch(function (err) {
+      alertBar('ga4Kpis', err.message);
+    }).then(function () { ga4.busy = false; $('ga4Fetch').textContent = 'Fetch from API'; });
+  }
+
+  /* ── Connections screen ───────────────────────────────────── */
+  function redirectUri() { return location.origin + location.pathname; }
+
+  function fillForm() {
+    $('fClientId').value = cfg.clientId;
+    $('fGscSite').value = cfg.gscSite;
+    $('fGa4Prop').value = cfg.ga4Property;
+    $('fGa4Meas').value = cfg.ga4Measurement;
+    $('fSa').value = cfg.serviceAccount;
+    $('fToken').value = cfg.token;
+    $('fOrigin').textContent = location.protocol === 'file:'
+      ? 'file:// — serve the page over http(s) for OAuth to work'
+      : redirectUri();
+    refreshTokenPill();
+    gscRefreshChrome();
+    ga4RefreshChrome();
+    renderCfgJson();
+  }
+
+  function refreshTokenPill() {
+    if (tokenLive()) {
+      var mins = cfg.tokenExp ? Math.max(0, Math.round((cfg.tokenExp - Date.now()) / 60000)) : null;
+      setPill($('tokenPill'), 'ok', 'Token active');
+      say('tokenInfo', mins != null ? 'Expires in about ' + mins + ' min.' : 'Pasted token — expiry unknown.');
+    } else if (cfg.token) {
+      setPill($('tokenPill'), 'err', 'Token expired');
+      say('tokenInfo', 'Reconnect to get a fresh one.', 'err');
+    } else {
+      setPill($('tokenPill'), 'off', 'No token');
+      say('tokenInfo', '');
+    }
+  }
+
+  function renderCfgJson() {
+    var safe = {
+      clientId: cfg.clientId,
+      searchConsole: { property: cfg.gscSite },
+      analytics: { propertyId: cfg.ga4Property, measurementId: cfg.ga4Measurement },
+      serviceAccount: cfg.serviceAccount ? '[stored in this browser — not shown]' : '',
+      token: cfg.token ? '[' + (tokenLive() ? 'active' : 'expired') + ' — not shown]' : ''
+    };
+    $('cfgOut').value = JSON.stringify(safe, null, 2);
+  }
+
+  function readForm() {
+    cfg.clientId = $('fClientId').value.trim();
+    cfg.gscSite = $('fGscSite').value.trim();
+    cfg.ga4Property = $('fGa4Prop').value.trim().replace(/^properties\//, '');
+    cfg.ga4Measurement = $('fGa4Meas').value.trim();
+    cfg.serviceAccount = $('fSa').value.trim();
+    var t = $('fToken').value.trim();
+    if (t !== cfg.token) {
+      cfg.token = t;
+      cfg.tokenExp = 0;
+      cfg.tokenSource = t ? 'pasted' : '';
+    }
+  }
+
+  function wireConnections() {
+    $('btnSave').addEventListener('click', function () {
+      readForm();
+      var ok = saveCfg();
+      say('saveOut', ok ? 'Saved to this browser.' : 'Local storage is blocked here — settings hold for this session only.', ok ? 'ok' : 'err');
+      fillForm();
+      gsc.data = null; ga4.data = null;
+    });
+
+    $('btnClear').addEventListener('click', function () {
+      for (var k in cfg) cfg[k] = (typeof cfg[k] === 'number') ? 0 : '';
+      try { localStorage.removeItem(CFG_KEY); } catch (e) {}
+      fillForm();
+      say('saveOut', 'Cleared.', 'ok');
+    });
+
+    $('btnCopy').addEventListener('click', function () {
+      var ta = $('cfgOut');
+      ta.select();
+      var done = function () { say('saveOut', 'Configuration copied.', 'ok'); };
+      if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(done, function () { done(); });
+      else done();
+    });
+
+    $('btnConnect').addEventListener('click', function () {
+      readForm();
+      if (!cfg.clientId) { say('saveOut', 'Add an OAuth client ID first.', 'err'); return; }
+      if (location.protocol === 'file:') {
+        say('saveOut', 'Google rejects file:// redirects. Serve the page over http first, e.g. python3 -m http.server.', 'err');
+        return;
+      }
+      saveCfg();
+      location.href = 'https://accounts.google.com/o/oauth2/v2/auth' +
+        '?client_id=' + encodeURIComponent(cfg.clientId) +
+        '&redirect_uri=' + encodeURIComponent(redirectUri()) +
+        '&response_type=token' +
+        '&scope=' + encodeURIComponent(SCOPES) +
+        '&include_granted_scopes=true&prompt=consent';
+    });
+
+    $('btnDisconnect').addEventListener('click', function () {
+      cfg.token = ''; cfg.tokenExp = 0; cfg.tokenSource = '';
+      saveCfg(); fillForm();
+      say('tokenInfo', 'Signed out on this device.');
+    });
+
+    $('btnTestGsc').addEventListener('click', function () {
+      readForm(); saveCfg();
+      say('gscTestOut', 'Testing…');
+      api('https://searchconsole.googleapis.com/webmasters/v3/sites').then(function (res) {
+        var sites = (res.siteEntry || []).map(function (s) { return s.siteUrl; });
+        var pick = $('fGscPick');
+        pick.innerHTML = '<option value="">Pick a property…</option>';
+        sites.forEach(function (s) {
+          var o = document.createElement('option');
+          o.value = s; o.textContent = s;
+          if (s === cfg.gscSite) o.selected = true;
+          pick.appendChild(o);
+        });
+        say('gscTestOut', sites.length + ' propert' + (sites.length === 1 ? 'y' : 'ies') + ' visible to this account.', 'ok');
+        gscRefreshChrome();
+      }).catch(function (e) { say('gscTestOut', e.message, 'err'); });
+    });
+
+    $('fGscPick').addEventListener('change', function () {
+      if (this.value) { $('fGscSite').value = this.value; readForm(); saveCfg(); gscRefreshChrome(); renderCfgJson(); }
+    });
+
+    $('btnTestGa4').addEventListener('click', function () {
+      readForm(); saveCfg();
+      if (!cfg.ga4Property) { say('ga4TestOut', 'Add the numeric property ID first.', 'err'); return; }
+      say('ga4TestOut', 'Testing…');
+      ga4Report(['date'], ['sessions'], 7, 1).then(function (res) {
+        var n = (res.rows || []).length;
+        say('ga4TestOut', n ? 'Connected — the property returned data.' : 'Connected, but the property reported no rows for the last 7 days.', n ? 'ok' : 'warn');
+        ga4RefreshChrome();
+      }).catch(function (e) { say('ga4TestOut', e.message, 'err'); });
+    });
+
+    ['gscRange', 'gscSample'].forEach(function (id) {
+      $(id).addEventListener('change', function () { gsc.data = null; renderGsc(); });
+    });
+    ['ga4Range', 'ga4Sample'].forEach(function (id) {
+      $(id).addEventListener('change', function () { ga4.data = null; renderGa4(); });
+    });
+    $('gscFetch').addEventListener('click', gscFetch);
+    $('ga4Fetch').addEventListener('click', ga4Fetch);
+
+    $('gscTabs').addEventListener('click', function (ev) {
+      var t = ev.target.closest('[data-dim]'); if (!t) return;
+      this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+      t.setAttribute('aria-selected', 'true');
+      gsc.dim = t.getAttribute('data-dim');
+      if (gsc.data && !gsc.data.sample && !gsc.data.rows[gsc.dim].length) gscFetch();
+      else renderGsc();
+    });
+    $('ga4Tabs').addEventListener('click', function (ev) {
+      var t = ev.target.closest('[data-dim]'); if (!t) return;
+      this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+      t.setAttribute('aria-selected', 'true');
+      ga4.dim = t.getAttribute('data-dim');
+      if (ga4.data && !ga4.data.sample && !ga4.data.rows[ga4.dim].length) ga4Fetch();
+      else renderGa4();
+    });
+  }
+
+  /* ── View routing ─────────────────────────────────────────── */
+  var VIEW_META = {
+    dashboard: {
+      crumb: 'SEO', tag: 'Phase 1',
+      title: 'SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span>',
+      strip: 'Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.'
+    },
+    gsc: {
+      crumb: 'Google Data', tag: 'Search Console',
+      title: 'Search Console: <span class="domain">www.twinhomebuyer.com</span>',
+      strip: 'Clicks, impressions, CTR and average position, read straight from the Search Console API.'
+    },
+    ga4: {
+      crumb: 'Google Data', tag: 'Analytics 4',
+      title: 'Google Analytics 4: <span class="domain">www.twinhomebuyer.com</span>',
+      strip: 'Sessions, users and engagement from the GA4 Data API.'
+    },
+    connections: {
+      crumb: 'Google Data', tag: 'Setup',
+      title: 'Connections &amp; API keys',
+      strip: 'Credentials live in this browser and are sent only to Google. Nothing is uploaded anywhere else.'
+    }
+  };
+
+  function showView(name) {
+    if (!VIEW_META[name]) name = 'dashboard';
+    Object.keys(VIEW_META).forEach(function (v) {
+      var node = $('view-' + v);
+      if (node) node.hidden = (v !== name);
+    });
+    var m = VIEW_META[name];
+    $('crumbSection').textContent = m.crumb;
+    $('pageTitle').innerHTML = m.title;
+    $('pageTag').textContent = m.tag;
+    $('pageStrip').innerHTML = m.strip;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    if (name === 'connections') fillForm();
+    if (name === 'gsc') renderGsc();
+    if (name === 'ga4') renderGa4();
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target.closest && ev.target.closest('[data-view],[data-goto]');
+    if (!t) return;
+    var name = t.getAttribute('data-view') || t.getAttribute('data-goto');
+    showView(name);
+    if (isNarrow()) app.setAttribute('data-nav', 'closed');
+    if (t.getAttribute('data-goto')) {
+      document.querySelectorAll('.nav-item').forEach(function (n) {
+        if (n.getAttribute('data-view') === name) n.setAttribute('aria-current', 'true');
+        else n.removeAttribute('aria-current');
+      });
+    }
+  });
+
+  wireConnections();
+  fillForm();
+
+  // Charts are sized from their host, so a resize needs a redraw.
+  var resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      if (!$('view-dashboard').hidden) renderCharts();
+      if (!$('view-gsc').hidden) renderGsc();
+      if (!$('view-ga4').hidden) renderGa4();
+    }, 180);
+  });
 })();
 </script>
