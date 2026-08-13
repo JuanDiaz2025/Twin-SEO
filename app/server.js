@@ -296,14 +296,27 @@ async function ga4Report(days, dim) {
 
 /* ── Site audit ─────────────────────────────────────────────── */
 
-let audit = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url: '', startedAt: 0 };
+let audit = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url: '', startedAt: 0, stop: false };
 
-function startAudit(startUrl, maxPages) {
-  audit = { state: 'running', crawled: 0, total: 1, result: null, error: '', url: startUrl, startedAt: Date.now() };
-  runAudit(startUrl, { maxPages }, (done, total) => {
+// Gentle by default: a crawl that hammers a site also measures its own
+// contention as page slowness, so pacing improves accuracy as well as manners.
+const PACE = {
+  gentle: { concurrency: 1, delayMs: 1000 },
+  normal: { concurrency: 2, delayMs: 400 },
+  brisk:  { concurrency: 4, delayMs: 150 }
+};
+
+function startAudit(startUrl, maxPages, pace) {
+  const tuning = PACE[pace] || PACE.normal;
+  audit = {
+    state: 'running', crawled: 0, total: 1, result: null, error: '',
+    url: startUrl, startedAt: Date.now(), stop: false,
+    maxPages, pace: pace || 'normal'
+  };
+  runAudit(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
     audit.crawled = done;
     audit.total = total;
-  }).then(result => {
+  }, () => audit.stop).then(result => {
     audit.result = result;
     audit.state = 'done';
     audit.tookMs = Date.now() - audit.startedAt;
@@ -447,9 +460,15 @@ const server = http.createServer(async (req, res) => {
       if (audit.state === 'running') {
         return send(res, 409, { error: 'An audit is already running.', url: audit.url });
       }
-      const maxPages = Math.min(200, Math.max(1, Number(body.maxPages) || 40));
-      startAudit(target.toString(), maxPages);
-      return send(res, 200, { started: true, url: target.toString(), maxPages });
+      const maxPages = Math.min(1000, Math.max(1, Number(body.maxPages) || 40));
+      const pace = ['gentle', 'normal', 'brisk'].indexOf(body.pace) > -1 ? body.pace : 'normal';
+      startAudit(target.toString(), maxPages, pace);
+      return send(res, 200, { started: true, url: target.toString(), maxPages, pace });
+    }
+
+    if (route === '/api/audit/stop' && req.method === 'POST') {
+      if (audit.state === 'running') audit.stop = true;
+      return send(res, 200, { stopping: audit.state === 'running' });
     }
 
     if (route === '/api/audit/status') {
@@ -459,6 +478,8 @@ const server = http.createServer(async (req, res) => {
         total: audit.total,
         url: audit.url,
         error: audit.error,
+        elapsedMs: audit.startedAt ? Date.now() - audit.startedAt : 0,
+        stopping: Boolean(audit.stop && audit.state === 'running'),
         tookMs: audit.tookMs || 0,
         result: audit.state === 'done' ? audit.result : null
       });

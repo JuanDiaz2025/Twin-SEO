@@ -209,7 +209,7 @@ function extractLinks(html, base) {
 
 /* ── robots.txt ─────────────────────────────────────────────────── */
 async function fetchRobots(origin) {
-  const rules = { disallow: [], sitemaps: [], found: false };
+  const rules = { disallow: [], sitemaps: [], found: false, crawlDelayMs: 0 };
   try {
     const res = await fetch(`${origin}/robots.txt`, { headers: { 'User-Agent': UA }, redirect: 'follow' });
     if (!res.ok) return rules;
@@ -224,10 +224,47 @@ async function fetchRobots(origin) {
       const value = rest.join(':').trim();
       if (key === 'user-agent') applies = value === '*' || /twinseo/i.test(value);
       else if (key === 'disallow' && applies && value) rules.disallow.push(value);
+      else if (key === 'crawl-delay' && applies) {
+        const secs = parseFloat(value);
+        if (isFinite(secs) && secs > 0) rules.crawlDelayMs = Math.min(10000, secs * 1000);
+      }
       else if (key === 'sitemap') rules.sitemaps.push(value);
     }
   } catch (e) { /* no robots.txt is not an error */ }
   return rules;
+}
+
+// Pages reachable only from a sitemap would otherwise be invisible to a
+// link-following crawl, which matters once the page budget is in the hundreds.
+async function fetchSitemapUrls(origin, sitemaps, limit) {
+  const found = [];
+  const queue = sitemaps.length ? sitemaps.slice(0, 5) : [`${origin}/sitemap.xml`];
+  const seenSitemaps = new Set();
+
+  while (queue.length && found.length < limit) {
+    const url = queue.shift();
+    if (seenSitemaps.has(url) || seenSitemaps.size > 25) continue;
+    seenSitemaps.add(url);
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA }, redirect: 'follow' });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      const isIndex = /<sitemapindex/i.test(xml);
+      const locs = xml.match(/<loc>\s*([^<]+?)\s*<\/loc>/gi) || [];
+      for (const loc of locs) {
+        const value = loc.replace(/<\/?loc>/gi, '').trim();
+        if (isIndex) { queue.push(value); continue; }
+        try {
+          const u = new URL(value);
+          if (u.origin !== origin) continue;
+          u.hash = '';
+          found.push(u.toString());
+          if (found.length >= limit) break;
+        } catch (e) { /* skip malformed entries */ }
+      }
+    } catch (e) { /* a missing sitemap is not an error */ }
+  }
+  return found;
 }
 
 function blockedByRobots(pathname, rules) {
@@ -235,29 +272,89 @@ function blockedByRobots(pathname, rules) {
 }
 
 /* ── The crawl ──────────────────────────────────────────────────── */
-async function crawl(startUrl, options, onProgress) {
-  const opts = Object.assign({ maxPages: 40, concurrency: 4, timeoutMs: 15000 }, options);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function crawl(startUrl, options, onProgress, shouldStop) {
+  const opts = Object.assign({
+    maxPages: 40,
+    concurrency: 2,
+    delayMs: 400,      // spacing between requests, not per worker
+    timeoutMs: 20000,
+    retries: 1
+  }, options);
   const start = new URL(startUrl);
   const origin = start.origin;
 
   const robots = await fetchRobots(origin);
+  // A site asking for a slower crawl gets one.
+  const delayMs = Math.max(opts.delayMs, robots.crawlDelayMs || 0);
+
   const queue = [start.toString()];
   const seen = new Set(queue);
   const pages = [];
   const linkSources = new Map();   // url → the page that linked to it
 
-  async function visit(url) {
-    const began = Date.now();
-    const page = { url, status: 0, ms: 0, redirectedTo: null, bytes: 0, issues: [] };
+  // Seed from the sitemap so orphaned pages are not missed.
+  if (opts.maxPages > 25) {
+    const fromSitemap = await fetchSitemapUrls(origin, robots.sitemaps, opts.maxPages);
+    for (const url of fromSitemap) {
+      if (seen.size >= opts.maxPages) break;
+      if (seen.has(url)) continue;
+      try {
+        if (blockedByRobots(new URL(url).pathname, robots)) continue;
+      } catch (e) { continue; }
+      seen.add(url);
+      queue.push(url);
+    }
+  }
+
+  // One shared clock, so the request rate holds whatever the concurrency is.
+  let nextSlot = 0;
+  async function throttle() {
+    const now = Date.now();
+    const wait = Math.max(0, nextSlot - now);
+    nextSlot = Math.max(now, nextSlot) + delayMs;
+    if (wait > 0) await sleep(wait);
+  }
+
+  async function fetchOnce(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-      const res = await fetch(url, {
+      return await fetch(url, {
         headers: { 'User-Agent': UA, Accept: 'text/html,*/*' },
         redirect: 'follow',
         signal: controller.signal
       });
+    } finally {
       clearTimeout(timer);
+    }
+  }
+
+  async function visit(url) {
+    const page = { url, status: 0, ms: 0, redirectedTo: null, bytes: 0, issues: [] };
+    let began = 0;
+    try {
+      let res = null;
+      // Retry transient failures before calling a page broken — one dropped
+      // connection should not be reported as a dead page.
+      for (let attempt = 0; attempt <= opts.retries; attempt++) {
+        await throttle();
+        began = Date.now();
+        try {
+          res = await fetchOnce(url);
+        } catch (err) {
+          if (attempt === opts.retries) throw err;
+          await sleep(1000 * (attempt + 1));
+          continue;
+        }
+        if ((res.status === 429 || res.status === 503) && attempt < opts.retries) {
+          const retryAfter = parseFloat(res.headers.get('retry-after'));
+          await sleep(isFinite(retryAfter) ? Math.min(30000, retryAfter * 1000) : 2000 * (attempt + 1));
+          continue;
+        }
+        break;
+      }
 
       page.status = res.status;
       page.ms = Date.now() - began;
@@ -323,23 +420,28 @@ async function crawl(startUrl, options, onProgress) {
 
   // A small sliding window of workers keeps the crawl brisk without hammering.
   let active = 0;
+  let stopped = false;
   await new Promise(resolve => {
     const pump = () => {
-      if (!queue.length && active === 0) return resolve();
-      while (active < opts.concurrency && queue.length && pages.length < opts.maxPages) {
+      if (shouldStop && shouldStop()) stopped = true;
+      if (stopped && active === 0) return resolve();
+      if (!stopped && !queue.length && active === 0) return resolve();
+      while (!stopped && active < opts.concurrency && queue.length && pages.length + active < opts.maxPages) {
         const url = queue.shift();
         active++;
         visit(url).then(page => {
           pages.push(page);
-          if (onProgress) onProgress(pages.length, pages.length + queue.length);
+          if (onProgress) {
+            onProgress(pages.length, Math.min(opts.maxPages, pages.length + active + queue.length));
+          }
         }).catch(() => {}).then(() => { active--; pump(); });
       }
-      if (pages.length >= opts.maxPages && active === 0) resolve();
+      if (pages.length + active >= opts.maxPages && active === 0) resolve();
     };
     pump();
   });
 
-  return { pages, robots, origin, linkSources };
+  return { pages, robots, origin, linkSources, delayMs, sitemapSeeded: seen.size - 1 };
 }
 
 /* ── Turning pages into findings ────────────────────────────────── */
@@ -534,9 +636,17 @@ function analyse({ pages, robots, origin, linkSources }) {
   };
 }
 
-async function runAudit(startUrl, options, onProgress) {
-  const crawled = await crawl(startUrl, options, onProgress);
-  return analyse(crawled);
+async function runAudit(startUrl, options, onProgress, shouldStop) {
+  const crawled = await crawl(startUrl, options, onProgress, shouldStop);
+  const result = analyse(crawled);
+  result.stopped = Boolean(shouldStop && shouldStop());
+  result.settings = {
+    maxPages: options && options.maxPages,
+    delayMs: crawled.delayMs,
+    concurrency: (options && options.concurrency) || 2,
+    fromSitemap: crawled.sitemapSeeded
+  };
+  return result;
 }
 
 module.exports = { runAudit, CHECKS };

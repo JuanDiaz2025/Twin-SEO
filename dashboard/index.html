@@ -1466,13 +1466,30 @@
                 <option value="15">15 — quick look</option>
                 <option value="40" selected>40 — normal</option>
                 <option value="100">100 — thorough</option>
-                <option value="200">200 — everything</option>
+                <option value="250">250 — deep</option>
+                <option value="500">500 — very deep</option>
+                <option value="1000">1000 — the whole site</option>
               </select>
-              <span class="field-hint">Real requests to your server, so it stays polite: four at a time, and robots.txt is honoured.</span>
+              <span class="field-hint">Above 25 pages the sitemap is read as well, so pages nothing links to still get checked.</span>
+            </div>
+            <div class="field">
+              <label for="auditPace">Crawl speed</label>
+              <select class="input" id="auditPace">
+                <option value="gentle">Gentle — 1 page/sec, one at a time</option>
+                <option value="normal" selected>Normal — about 2.5 pages/sec</option>
+                <option value="brisk">Brisk — about 6 pages/sec</option>
+              </select>
+              <span class="field-hint">Slower is more accurate: page timings measured while hammering the server read as slower than they really are. robots.txt Crawl-delay always wins.</span>
+            </div>
+            <div class="field">
+              <label>Estimated time</label>
+              <span class="code" id="auditEta" style="padding:8px 10px;display:block">about 20 seconds</span>
+              <span class="field-hint">Failed requests are retried once before a page is called broken.</span>
             </div>
           </div>
           <div class="actions" style="margin-top:14px">
             <button class="btn btn-primary" id="auditRun">Run audit</button>
+            <button class="btn" id="auditStop" hidden>Stop</button>
             <span class="field-hint" id="auditOut"></span>
           </div>
           <div id="auditProgress" hidden style="margin-top:14px">
@@ -3366,8 +3383,10 @@
       { key: 'notices', label: 'Notices', value: fmtInt(r.counts.notice), note: 'nice to have' }
     ], null, function () {});
 
+    var rate = tookMs ? (r.crawled / (tookMs / 1000)).toFixed(1) : '0';
     $('auditMeta').textContent = r.crawled + ' pages · ' + (tookMs ? (tookMs / 1000).toFixed(1) + 's' : '') +
-      (r.robots.found ? ' · robots.txt found' : ' · no robots.txt');
+      ' · ' + rate + ' pages/sec' +
+      (r.robots.found ? ' · robots.txt honoured' : ' · no robots.txt');
     auditSeverityBar(r.counts);
 
     var host = $('auditIssues');
@@ -3493,13 +3512,20 @@
       if (s.state === 'running') {
         var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
         $('auditBar').style.width = Math.max(4, pct) + '%';
-        say('auditOut', 'Crawling — ' + s.crawled + ' of about ' + s.total + ' pages…');
+        var msg = 'Crawling — ' + s.crawled + ' of about ' + s.total + ' pages';
+        if (s.crawled > 2 && s.elapsedMs > 3000) {
+          var perPage = s.elapsedMs / s.crawled;
+          var left = Math.max(0, (s.total - s.crawled) * perPage) / 1000;
+          msg += ' · ' + humanDuration(left) + ' left';
+        }
+        say('auditOut', s.stopping ? 'Stopping…' : msg + '…');
         setPill($('auditPill'), 'warn', 'Running');
         return;
       }
       clearInterval(auditTimer); auditTimer = null;
       $('auditRun').disabled = false;
       $('auditRun').textContent = 'Run audit';
+      $('auditStop').hidden = true;
       $('auditProgress').hidden = true;
       if (s.state === 'error') {
         setPill($('auditPill'), 'err', 'Failed');
@@ -3509,7 +3535,8 @@
       if (s.state === 'done' && s.result) {
         setPill($('auditPill'), s.result.counts.error ? 'warn' : 'ok',
           'Health ' + s.result.health + '/100');
-        say('auditOut', 'Finished — ' + s.result.crawled + ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', 'ok');
+        say('auditOut', (s.result.stopped ? 'Stopped — ' : 'Finished — ') + s.result.crawled +
+          ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', s.result.stopped ? 'warn' : 'ok');
         renderAudit(s.result, s.tookMs);
       }
     }).catch(function (e) {
@@ -3520,9 +3547,35 @@
     });
   }
 
+  var PACE_RATE = { gentle: 1, normal: 2.5, brisk: 6 };
+
+  function humanDuration(secs) {
+    if (secs < 60) return 'about ' + Math.max(5, Math.round(secs / 5) * 5) + ' seconds';
+    var mins = secs / 60;
+    if (mins < 60) return 'about ' + (mins < 2 ? mins.toFixed(1) : Math.round(mins)) + ' minutes';
+    return 'about ' + (mins / 60).toFixed(1) + ' hours';
+  }
+
+  function updateEta() {
+    var pages = Number($('auditMax').value);
+    var rate = PACE_RATE[$('auditPace').value] || 2.5;
+    $('auditEta').textContent = humanDuration(pages / rate);
+  }
+
   function wireAudit() {
     var runBtn = $('auditRun');
     if (!runBtn) return;
+
+    $('auditMax').addEventListener('change', updateEta);
+    $('auditPace').addEventListener('change', updateEta);
+    updateEta();
+
+    $('auditStop').addEventListener('click', function () {
+      $('auditStop').disabled = true;
+      $('auditStop').textContent = 'Stopping…';
+      srv('/api/audit/stop', {}).catch(function () {});
+      say('auditOut', 'Stopping after the pages already in flight…');
+    });
 
     runBtn.addEventListener('click', function () {
       if (!SERVER) {
@@ -3535,10 +3588,17 @@
       if (!url) { say('auditOut', 'Give me a URL to scan.', 'err'); return; }
       runBtn.disabled = true;
       runBtn.textContent = 'Scanning…';
+      $('auditStop').hidden = false;
+      $('auditStop').disabled = false;
+      $('auditStop').textContent = 'Stop';
       $('auditProgress').hidden = false;
       $('auditBar').style.width = '4%';
       say('auditOut', 'Starting…');
-      srv('/api/audit/start', { url: url, maxPages: Number($('auditMax').value) })
+      srv('/api/audit/start', {
+        url: url,
+        maxPages: Number($('auditMax').value),
+        pace: $('auditPace').value
+      })
         .then(function () {
           if (auditTimer) clearInterval(auditTimer);
           auditTimer = setInterval(pollAudit, 700);
