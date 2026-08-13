@@ -685,6 +685,30 @@
   }
   .issue-url a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .issue-url .detail { color: var(--ink-3); flex: none; font-variant-numeric: tabular-nums; }
+  .issue-how { font-size: 12.5px; color: var(--ink); margin: 0 0 10px; max-width: 74ch; }
+  .issue-how strong { color: var(--accent-deep); }
+  .issue-code {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface-sub); border: 1px solid var(--hairline);
+    border-radius: 7px; padding: 8px 10px; margin: 0 0 12px;
+    overflow-x: auto;
+  }
+  .issue-code code { font-family: var(--mono); font-size: 11.5px; white-space: pre; flex: 1 1 auto; }
+  .copy-btn {
+    flex: none; font-size: 11px; font-weight: 600; color: var(--accent);
+    border: 1px solid var(--hairline); border-radius: 5px; padding: 3px 8px;
+    background: var(--surface);
+  }
+  .copy-btn:hover { border-color: var(--accent-line); }
+  .issue-current {
+    font-size: 11.5px; color: var(--ink-2); font-family: var(--mono);
+    padding: 2px 0 0 0; word-break: break-word;
+  }
+  .issue-fix {
+    font-size: 12.5px; color: var(--ink); padding: 3px 0 8px;
+    border-left: 2px solid var(--accent-line); padding-left: 9px; margin: 4px 0 6px;
+  }
+  .sev-first { background: var(--accent); color: #fff; }
 
   /* ── Toasts ──────────────────────────────────────────────── */
   .toast-host {
@@ -3352,7 +3376,7 @@
       host.innerHTML = '<p style="margin:0;font-size:13px;color:var(--good-text)">' +
         'No problems found across ' + r.crawled + ' pages.</p>';
     }
-    r.issues.forEach(function (issue) {
+    r.issues.forEach(function (issue, idx) {
       var d = document.createElement('details');
       d.className = 'issue';
       var sum = document.createElement('summary');
@@ -3360,16 +3384,52 @@
         '<span class="grow"></span><span class="n"></span>';
       sum.children[1].textContent = issue.title;
       sum.children[2].textContent = issue.count + (issue.count === 1 ? ' page' : ' pages');
+      // The list is already ordered by impact, so the badge marks the single
+      // thing worth doing first — only meaningful when it is an error.
+      if (idx === 0 && issue.severity === 'error') {
+        var flag = document.createElement('span');
+        flag.className = 'sev sev-first';
+        flag.textContent = 'fix first';
+        sum.insertBefore(flag, sum.children[2]);
+      }
       d.appendChild(sum);
 
       var body = document.createElement('div');
       body.className = 'issue-body';
-      if (issue.hint) {
-        var hint = document.createElement('p');
-        hint.className = 'issue-hint';
-        hint.textContent = issue.hint;
-        body.appendChild(hint);
+
+      if (issue.why) {
+        var why = document.createElement('p');
+        why.className = 'issue-hint';
+        why.appendChild(document.createTextNode(issue.why));
+        body.appendChild(why);
       }
+      if (issue.how) {
+        var how = document.createElement('p');
+        how.className = 'issue-how';
+        var lab = document.createElement('strong');
+        lab.textContent = 'Fix: ';
+        how.appendChild(lab);
+        how.appendChild(document.createTextNode(issue.how));
+        body.appendChild(how);
+      }
+      if (issue.snippet) {
+        var pre = document.createElement('div');
+        pre.className = 'issue-code';
+        var codeText = document.createElement('code');
+        codeText.textContent = issue.snippet;
+        var copy = document.createElement('button');
+        copy.className = 'copy-btn';
+        copy.textContent = 'Copy';
+        copy.addEventListener('click', function () {
+          if (navigator.clipboard) navigator.clipboard.writeText(issue.snippet).then(
+            function () { toast('Copied.'); }, function () { toast('Copy blocked by the browser.'); });
+          else toast('Copy blocked by the browser.');
+        });
+        pre.appendChild(codeText);
+        pre.appendChild(copy);
+        body.appendChild(pre);
+      }
+
       var list = document.createElement('div');
       list.className = 'issue-urls';
       issue.pages.forEach(function (pg) {
@@ -3384,6 +3444,19 @@
         det.textContent = pg.detail || '';
         row.appendChild(a); row.appendChild(det);
         list.appendChild(row);
+
+        if (pg.current) {
+          var cur = document.createElement('div');
+          cur.className = 'issue-current';
+          cur.textContent = 'Now: ' + pg.current;
+          list.appendChild(cur);
+        }
+        if (pg.fix) {
+          var fix = document.createElement('div');
+          fix.className = 'issue-fix';
+          fix.appendChild(withLinks(pg.fix));
+          list.appendChild(fix);
+        }
       });
       if (issue.count > issue.pages.length) {
         var more = document.createElement('div');

@@ -39,29 +39,130 @@ const CHECKS = {
   largePage:        { severity: 'notice',  weight: 1,  title: 'Large page weight' }
 };
 
-const HINTS = {
-  status5xx: 'The server failed on these URLs. Until they respond, neither users nor crawlers can reach them.',
-  status4xx: 'These URLs are linked but do not exist. Fix the link or restore the page.',
-  brokenInternal: 'Links on your site point at URLs that do not resolve.',
-  noTitle: 'The title is the headline in search results. Without one Google writes its own.',
-  duplicateTitle: 'Pages sharing a title compete with each other and look identical in results.',
-  noH1: 'Each page wants one H1 stating what it is about.',
-  multipleH1: 'Several H1s blur what the page is about. Keep one, demote the rest to H2.',
-  noDescription: 'Without a description Google picks a snippet from the page, often badly.',
-  duplicateDesc: 'The same description across pages wastes the snippet.',
-  titleLength: 'Aim for roughly 30–60 characters; longer gets truncated in results.',
-  descLength: 'Aim for roughly 70–160 characters.',
-  imgNoAlt: 'Alt text is what screen readers announce and what image search reads.',
-  slowPage: 'Responses over 1.5s hurt both ranking and the visitor.',
-  redirectChain: 'Links pointing at the final URL save a round trip.',
-  noCanonical: 'A canonical tag tells Google which URL is the real one.',
-  noViewport: 'Without a viewport meta, phones render the desktop layout zoomed out.',
-  noLang: 'The lang attribute helps search engines and screen readers.',
-  notHttps: 'HTTP pages are marked "not secure" and rank below their HTTPS equivalents.',
-  noindex: 'These pages tell search engines to stay away. Intentional for some, fatal for others.',
-  thinContent: 'Under 200 words rarely competes for anything.',
-  largePage: 'Pages over 2 MB are slow on phones and mobile data.'
+// Why it matters, and what to actually do about it. `snippet` is markup that
+// can be pasted as-is; `{url}` is filled in per page.
+const GUIDE = {
+  status5xx: {
+    why: 'The server failed outright. Neither visitors nor Google can reach the page, and repeated 5xx responses get pages dropped from the index.',
+    how: 'Check the server error log for the moment of the crawl. If the page is gone for good, return 410; if it moved, 301 it to the new URL.'
+  },
+  status4xx: {
+    why: 'The URL is linked but does not exist, so visitors hit a dead end and the link equity pointing at it is wasted.',
+    how: 'If the page moved, add a 301 redirect from this URL to its replacement. If it should never have existed, fix the link on the page that points here.'
+  },
+  brokenInternal: {
+    why: 'Your own pages link to URLs that do not resolve — the easiest kind of broken link to fix, because you control both ends.',
+    how: 'Edit the linking page and point the href at a working URL, or restore the missing page.'
+  },
+  noTitle: {
+    why: 'The title is the clickable headline in search results. Without one Google invents its own, usually from stray page text.',
+    how: 'Add a <title> in the <head>: the page topic first, brand last, under 60 characters.',
+    snippet: '<title>Page topic here | Twin Home Buyer</title>'
+  },
+  duplicateTitle: {
+    why: 'Pages with the same title compete against each other and look identical in results, so Google picks one and buries the rest.',
+    how: 'Give each page a title naming its own specific topic — the city, the service, or the question it answers.'
+  },
+  noH1: {
+    why: 'The H1 is the on-page headline. Without one, both readers and Google have to infer what the page is for.',
+    how: 'Add a single <h1> at the top of the content, stating the page topic in plain words.'
+  },
+  multipleH1: {
+    why: 'Several H1s split the signal about what the page is about.',
+    how: 'Keep the one that names the page topic and change the others to <h2>.'
+  },
+  noDescription: {
+    why: 'Without a description Google writes the search snippet itself, pulling whatever text it finds first — often a menu or a cookie notice.',
+    how: 'Add a meta description of 120–155 characters that says what the page offers and gives a reason to click.',
+    snippet: '<meta name="description" content="Your 120-155 character summary here.">'
+  },
+  duplicateDesc: {
+    why: 'The same description on several pages wastes the one piece of copy you control in the search result.',
+    how: 'Write a distinct description per page, matching that page\'s specific subject.'
+  },
+  titleLength: {
+    why: 'Google truncates titles past roughly 60 characters, and very short ones leave ranking terms unused.',
+    how: 'Aim for 30–60 characters. Lead with the topic and keep the brand suffix short.'
+  },
+  descLength: {
+    why: 'Descriptions past ~160 characters get cut mid-sentence; very short ones waste the space.',
+    how: 'Aim for 120–155 characters, ending on a complete thought.'
+  },
+  imgNoAlt: {
+    why: 'Alt text is what screen readers announce and what Google Images indexes. Missing alt is both an accessibility gap and lost image traffic.',
+    how: 'Describe what each image shows in a few words. For purely decorative images use alt="" so screen readers skip them.',
+    snippet: '<img src="…" alt="Short description of what the image shows">'
+  },
+  slowPage: {
+    why: 'Slow responses cost rankings and visitors — most people leave before a three-second page finishes loading.',
+    how: 'Check time-to-first-byte first: it is usually server or plugin time, not page weight. Then enable caching, and compress images.'
+  },
+  redirectChain: {
+    why: 'Every redirect adds a round trip before anything renders, and passes link equity through an extra hop.',
+    how: 'Update the internal links so they point straight at the final URL.'
+  },
+  noCanonical: {
+    why: 'Without a canonical, the same content reachable at several URLs (with and without a trailing slash, with tracking parameters) can be treated as duplicates.',
+    how: 'Add a self-referencing canonical in the <head>.',
+    snippet: '<link rel="canonical" href="{url}">'
+  },
+  noViewport: {
+    why: 'Phones render the desktop layout zoomed out, which Google treats as not mobile-friendly — and most of your traffic is mobile.',
+    how: 'Add the viewport meta to the <head>.',
+    snippet: '<meta name="viewport" content="width=device-width, initial-scale=1">'
+  },
+  noLang: {
+    why: 'The lang attribute tells screen readers which pronunciation to use and helps Google target the right region.',
+    how: 'Add a lang attribute to the opening html tag.',
+    snippet: '<html lang="en">'
+  },
+  notHttps: {
+    why: 'Browsers mark HTTP pages "Not secure", and HTTPS is a confirmed ranking signal.',
+    how: 'Redirect all HTTP traffic to HTTPS with a 301 and update internal links to the https:// form.'
+  },
+  noindex: {
+    why: 'This page explicitly tells search engines to stay out, so it can never rank — deliberate for thank-you pages, fatal for anything else.',
+    how: 'If the page should rank, remove the noindex from the robots meta tag.'
+  },
+  thinContent: {
+    why: 'Short pages rarely satisfy a search well enough to outrank a fuller answer.',
+    how: 'Aim for 600+ words on pages meant to rank. Add the detail buyers ask for: process, timeline, costs, local specifics, FAQs.'
+  },
+  largePage: {
+    why: 'Heavy pages are slow on phones and on mobile data, which is where most local searches happen.',
+    how: 'Move inline CSS and JavaScript into cached files, and strip unused page-builder markup.'
+  }
 };
+
+// Trim to a whole word at or under a limit.
+function trimTo(text, limit) {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(' ');
+  return (space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[\s\-|,:;]+$/, '');
+}
+
+// Titles are usually "Topic | Sub | Brand", so shed whole segments before
+// resorting to a mid-phrase cut.
+function shortenTitle(title, limit) {
+  if (title.length <= limit) return title;
+  const sep = /\s*[|\u2013\u2014\u00b7]\s*/;
+  if (sep.test(title)) {
+    const parts = title.split(sep).filter(Boolean);
+    while (parts.length > 1 && parts.join(' | ').length > limit) parts.pop();
+    const joined = parts.join(' | ');
+    if (joined.length <= limit && parts.length > 1) return joined;
+  }
+  return trimTo(title, limit);
+}
+
+function firstSentence(text, limit) {
+  if (!text) return '';
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const stop = clean.search(/[.!?]\s/);
+  const sentence = stop > 40 ? clean.slice(0, stop + 1) : clean;
+  return trimTo(sentence, limit);
+}
 
 /* ── Tiny HTML readers ──────────────────────────────────────────
    A parser dependency is not worth it for a handful of tags; these
@@ -182,12 +283,21 @@ async function crawl(startUrl, options, onProgress) {
       const h1s = html.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/gi) || [];
       page.h1Count = h1s.length;
       page.h1 = h1s.length ? stripTags(h1s[0]).slice(0, 120) : null;
+      page.h1s = h1s.slice(0, 4).map(h => stripTags(h).slice(0, 80));
 
       const imgs = html.match(/<img\b[^>]*>/gi) || [];
       page.images = imgs.length;
-      page.imagesNoAlt = imgs.filter(t => !/\balt\s*=/i.test(t)).length;
+      const noAlt = imgs.filter(t => !/\balt\s*=/i.test(t));
+      page.imagesNoAlt = noAlt.length;
+      page.imagesNoAltSrc = noAlt.slice(0, 6).map(t => {
+        const m = t.match(/src\s*=\s*["']([^"']+)["']/i);
+        return m ? m[1].split('/').pop().split('?')[0] : '(no src)';
+      });
 
+      // Body text minus the chrome, for suggesting a description.
+      const body = html.replace(/<(header|nav|footer|aside)[\s\S]*?<\/\1>/gi, ' ');
       page.words = stripTags(html).split(' ').filter(Boolean).length;
+      page.firstText = stripTags(body).slice(0, 400);
 
       const links = extractLinks(html, url);
       page.internalLinks = 0;
@@ -235,74 +345,165 @@ async function crawl(startUrl, options, onProgress) {
 /* ── Turning pages into findings ────────────────────────────────── */
 function analyse({ pages, robots, origin, linkSources }) {
   const found = {};
-  const add = (key, url, detail) => {
+  const add = (key, url, detail, fix, current) => {
     if (!found[key]) found[key] = [];
-    found[key].push({ url, detail });
+    found[key].push({ url, detail, fix: fix || '', current: current || '' });
   };
+  const brand = 'Twin Home Buyer';
 
   const titles = new Map();
   const descs = new Map();
 
   for (const p of pages) {
-    if (p.status === 0) { add('status5xx', p.url, p.error || 'No response'); continue; }
-    if (p.status >= 500) { add('status5xx', p.url, `HTTP ${p.status}`); continue; }
+    if (p.status === 0) {
+      add('status5xx', p.url, p.error || 'No response',
+        `The request failed outright (${p.error || 'no response'}). Check the site is up and that this URL is reachable from outside your network.`);
+      continue;
+    }
+    if (p.status >= 500) {
+      add('status5xx', p.url, `HTTP ${p.status}`,
+        `Returns ${p.status}. Check the server error log for the time of this crawl — a 5xx on a linked page loses both visitors and indexing.`);
+      continue;
+    }
     if (p.status >= 400) {
       const from = linkSources.get(p.url);
-      add('status4xx', p.url, `HTTP ${p.status}`);
-      if (from) add('brokenInternal', p.url, `linked from ${from}`);
+      const fromPath = from ? from.replace(/^https?:\/\/[^/]+/, '') || '/' : '';
+      add('status4xx', p.url, `HTTP ${p.status}`,
+        from
+          ? `Returns ${p.status} and is linked from ${fromPath}. If the page moved, 301 this URL to its replacement; ` +
+            `if it should not exist, remove or correct the link on ${fromPath}.`
+          : `Returns ${p.status}. If the page moved, 301 this URL to its replacement; otherwise return 410 so Google drops it.`);
+      if (from) {
+        add('brokenInternal', p.url, `linked from ${fromPath}`,
+          `${fromPath} links here and gets a ${p.status}. Edit that link to point somewhere real, or restore this page.`);
+      }
       continue;
     }
     if (p.contentType) continue;   // non-HTML, nothing more to check
 
-    if (new URL(p.url).protocol === 'http:') add('notHttps', p.url, 'served over HTTP');
-    if (p.redirectedTo) add('redirectChain', p.url, `→ ${p.redirectedTo}`);
-    if (p.ms > 1500) add('slowPage', p.url, `${(p.ms / 1000).toFixed(1)}s`);
-    if (p.bytes > 2 * 1024 * 1024) add('largePage', p.url, `${(p.bytes / 1048576).toFixed(1)} MB`);
+    if (new URL(p.url).protocol === 'http:') {
+      add('notHttps', p.url, 'served over HTTP', 'Serve this URL over https:// and 301 the http:// version to it.');
+    }
+    if (p.redirectedTo) {
+      add('redirectChain', p.url, `→ ${p.redirectedTo}`,
+        `Point internal links straight at ${p.redirectedTo} instead of this URL.`);
+    }
+    if (p.ms > 1500) {
+      add('slowPage', p.url, `${(p.ms / 1000).toFixed(1)}s`,
+        `Took ${(p.ms / 1000).toFixed(1)}s for ${Math.round((p.bytes || 0) / 1024)} KB of HTML. ` +
+        (p.bytes > 300 * 1024
+          ? 'The page is heavy as well as slow, so trim the markup and compress images.'
+          : 'The HTML is small, so the delay is server time — look at hosting, plugins or database queries rather than the page itself.'));
+    }
+    if (p.bytes > 2 * 1024 * 1024) {
+      add('largePage', p.url, `${(p.bytes / 1048576).toFixed(1)} MB`,
+        `${(p.bytes / 1048576).toFixed(1)} MB of HTML before images. Move inline CSS and scripts into cached files.`);
+    }
 
-    if (!p.title) add('noTitle', p.url, 'no <title>');
-    else {
+    if (!p.title) {
+      const suggestion = shortenTitle((p.h1 || 'Page topic') + ' | ' + brand, 60);
+      add('noTitle', p.url, 'no <title>',
+        `Add a title. Based on this page's H1, something like: "${suggestion}"`);
+    } else {
       const key = p.title.toLowerCase();
-      titles.set(key, (titles.get(key) || []).concat(p.url));
-      if (p.title.length > 60) add('titleLength', p.url, `${p.title.length} chars — too long`);
-      else if (p.title.length < 30) add('titleLength', p.url, `${p.title.length} chars — very short`);
+      const entry = titles.get(key) || { original: p.title, urls: [] };
+      entry.urls.push(p.url);
+      titles.set(key, entry);
+      if (p.title.length > 60) {
+        add('titleLength', p.url, `${p.title.length} chars — too long`,
+          `Google will cut this at about 60. Dropping the tail gives "${shortenTitle(p.title, 60)}", which still reads whole.`,
+          p.title);
+      } else if (p.title.length < 30) {
+        add('titleLength', p.url, `${p.title.length} chars — very short`,
+          `Only ${p.title.length} characters, so there is room for the search term and the location — ` +
+          `for example "${trimTo(p.title + ' in the Bay Area | ' + brand, 60)}".`,
+          p.title);
+      }
     }
 
-    if (!p.description) add('noDescription', p.url, 'no meta description');
-    else {
+    if (!p.description) {
+      const opener = firstSentence(p.firstText, 150);
+      add('noDescription', p.url, 'no meta description',
+        opener ? `Add one. The page opens with: "${opener}" — rewrite that into 120–155 characters ending with a reason to click.`
+               : 'Add a 120–155 character description of what this page offers.');
+    } else {
       const key = p.description.toLowerCase();
-      descs.set(key, (descs.get(key) || []).concat(p.url));
-      if (p.description.length > 160) add('descLength', p.url, `${p.description.length} chars — will be truncated`);
-      else if (p.description.length < 70) add('descLength', p.url, `${p.description.length} chars — very short`);
+      const dEntry = descs.get(key) || { original: p.description, urls: [] };
+      dEntry.urls.push(p.url);
+      descs.set(key, dEntry);
+      if (p.description.length > 160) {
+        add('descLength', p.url, `${p.description.length} chars — will be truncated`,
+          `Cut to about 155. "${trimTo(p.description, 155)}" keeps the meaning and survives the trim.`,
+          p.description);
+      } else if (p.description.length < 70) {
+        add('descLength', p.url, `${p.description.length} chars — very short`,
+          `There is room for another ${155 - p.description.length} characters — add the benefit or the service area.`,
+          p.description);
+      }
     }
 
-    if (!p.h1Count) add('noH1', p.url, 'no H1');
-    else if (p.h1Count > 1) add('multipleH1', p.url, `${p.h1Count} H1 tags`);
+    if (!p.h1Count) {
+      add('noH1', p.url, 'no H1',
+        `Add one H1 naming the page topic${p.title ? `, e.g. "${trimTo(p.title.split('|')[0].trim(), 70)}"` : ''}.`);
+    } else if (p.h1Count > 1) {
+      add('multipleH1', p.url, `${p.h1Count} H1 tags`,
+        `Keep "${p.h1s[0]}" as the H1 and change the ${p.h1Count - 1} other${p.h1Count > 2 ? 's' : ''} ` +
+        `(${p.h1s.slice(1).map(h => `"${h}"`).join(', ')}) to <h2>.`);
+    }
 
-    if (p.imagesNoAlt) add('imgNoAlt', p.url, `${p.imagesNoAlt} of ${p.images} images`);
-    if (!p.canonical) add('noCanonical', p.url, 'no canonical tag');
-    if (!p.viewport) add('noViewport', p.url, 'no viewport meta');
-    if (!p.lang) add('noLang', p.url, 'no lang attribute');
-    if (/noindex/i.test(p.robotsMeta)) add('noindex', p.url, p.robotsMeta);
-    if (p.words < 200) add('thinContent', p.url, `${p.words} words`);
+    if (p.imagesNoAlt) {
+      add('imgNoAlt', p.url, `${p.imagesNoAlt} of ${p.images} images`,
+        `Add alt text to: ${p.imagesNoAltSrc.join(', ')}${p.imagesNoAlt > p.imagesNoAltSrc.length ? ` and ${p.imagesNoAlt - p.imagesNoAltSrc.length} more` : ''}. ` +
+        'Describe what each shows; use alt="" for decorative ones.');
+    }
+    if (!p.canonical) {
+      add('noCanonical', p.url, 'no canonical tag',
+        `Add to the <head>:  <link rel="canonical" href="${p.url}">`);
+    }
+    if (!p.viewport) add('noViewport', p.url, 'no viewport meta', 'Paste the viewport meta above into the <head>.');
+    if (!p.lang) add('noLang', p.url, 'no lang attribute', 'Change <html> to <html lang="en">.');
+    if (/noindex/i.test(p.robotsMeta)) {
+      add('noindex', p.url, p.robotsMeta,
+        `This page carries robots="${p.robotsMeta}". If it is meant to rank, remove noindex from that tag.`,
+        p.robotsMeta);
+    }
+    if (p.words < 200) {
+      add('thinContent', p.url, `${p.words} words`,
+        `${p.words} words. Aim for 600+ if this page is meant to rank — add process, timelines, costs and FAQs.`);
+    }
   }
 
-  for (const [title, urls] of titles) {
-    if (urls.length > 1) urls.forEach(u => add('duplicateTitle', u, `shared by ${urls.length} pages: "${title.slice(0, 60)}"`));
+  for (const entry of titles.values()) {
+    if (entry.urls.length > 1) entry.urls.forEach(u => add('duplicateTitle', u,
+      `shared by ${entry.urls.length} pages`,
+      `${entry.urls.length} pages use this exact title. Give this one a title naming its own subject — ` +
+      'the city, the service, or the question it answers.',
+      entry.original.slice(0, 110)));
   }
-  for (const [desc, urls] of descs) {
-    if (urls.length > 1) urls.forEach(u => add('duplicateDesc', u, `shared by ${urls.length} pages`));
+  for (const entry of descs.values()) {
+    if (entry.urls.length > 1) entry.urls.forEach(u => add('duplicateDesc', u,
+      `shared by ${entry.urls.length} pages`,
+      `${entry.urls.length} pages share this description. Write one specific to this page.`,
+      entry.original.slice(0, 110)));
   }
 
-  const issues = Object.keys(found).map(key => ({
-    key,
-    title: CHECKS[key].title,
-    severity: CHECKS[key].severity,
-    hint: HINTS[key] || '',
-    count: found[key].length,
-    pages: found[key].slice(0, 50)
-  })).sort((a, b) => {
+  const issues = Object.keys(found).map(key => {
+    const guide = GUIDE[key] || {};
+    return {
+      key,
+      title: CHECKS[key].title,
+      severity: CHECKS[key].severity,
+      why: guide.why || '',
+      how: guide.how || '',
+      snippet: guide.snippet ? guide.snippet.replace('{url}', found[key][0].url) : '',
+      count: found[key].length,
+      // Weight × reach, so the list is ordered by what is worth doing first.
+      priority: Math.round(CHECKS[key].weight * Math.min(found[key].length, 10)),
+      pages: found[key].slice(0, 50)
+    };
+  }).sort((a, b) => {
     const rank = { error: 0, warning: 1, notice: 2 };
-    return rank[a.severity] - rank[b.severity] || b.count - a.count;
+    return rank[a.severity] - rank[b.severity] || b.priority - a.priority;
   });
 
   // Health: start at 100 and deduct by weight, scaled by how much of the site
