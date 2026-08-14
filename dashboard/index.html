@@ -255,7 +255,19 @@
     opacity: 0; flex: none;
   }
   .nav-item[data-target] .dot { opacity: .5; }
-  .nav-empty { padding: 10px 14px; color: var(--ink-3); font-size: 12.5px; }
+  /* A pasted value can be far longer than the sidebar is wide. Wrapping and
+     breaking keeps the message inside its column instead of spilling across
+     the menu items underneath it. */
+  .nav-empty {
+    padding: 10px 14px; color: var(--ink-3); font-size: 12.5px;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .nav-empty .nav-reset {
+    display: block; margin-top: 8px; padding: 0; text-align: left;
+    border: 0; background: none; cursor: pointer;
+    color: var(--accent-line); font: inherit; font-size: 12.5px;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
   .nav-sep { height: 1px; background: var(--hairline-soft); margin: 8px 14px; }
 
   /* ── Topbar ───────────────────────────────────────────────── */
@@ -286,6 +298,12 @@
   }
   .search input:focus { outline: none; }
   .search svg { width: 14px; height: 14px; flex: none; }
+  .search-clear {
+    flex: none; border: 0; background: none; cursor: pointer;
+    color: var(--ink-3); font-size: 17px; line-height: 1;
+    padding: 0 2px; border-radius: 4px;
+  }
+  .search-clear:hover { color: var(--ink); }
   .top-spacer { flex: 1 1 auto; }
   .top-link { color: var(--ink-2); font-size: 13px; }
   .top-link:hover { color: var(--ink); }
@@ -906,6 +924,7 @@
         <label class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
           <input id="toolSearch" type="search" placeholder="Go to tool…" aria-label="Filter tools in the menu" autocomplete="off">
+          <button class="search-clear" id="toolSearchClear" type="button" hidden aria-label="Clear the menu filter" title="Clear (Esc)">×</button>
         </label>
         <div class="top-spacer"></div>
         <button class="top-link" id="hiddenLink">Hidden widgets</button>
@@ -2377,12 +2396,27 @@
   }
   bindNav();
 
-  /* ── Menu filter ──────────────────────────────────────────── */
+  /* ── Menu filter ───────────────────────────────────────────────
+     A filter that matches nothing hides every menu item, so whatever
+     put the text there must also be undoable without hunting: Escape,
+     a clear button, and a reset link in the message itself. Losing the
+     whole menu with no way back is worse than the filter is useful.
+     ─────────────────────────────────────────────────────────────── */
+  var CLIENT_ID_ISH = /^[0-9]{6,}-[a-z0-9_-]{10,}/i;
+
   function wireSearch() {
     var input = document.getElementById('toolSearch');
     var hint = document.getElementById('navHint');
-    input.oninput = function () {
-      var q = input.value.trim().toLowerCase();
+    var clearBtn = document.getElementById('toolSearchClear');
+    if (!input) return;
+    // bindNav() rebuilds the menu and calls this again. Re-running the filter
+    // over the new items matters; re-adding the listeners does not.
+    if (input.dataset.wired) { input.dispatchEvent(new Event('input')); return; }
+    input.dataset.wired = '1';
+
+    function apply() {
+      var raw = input.value.trim();
+      var q = raw.toLowerCase();
       var shown = 0;
       document.querySelectorAll('.nav-group').forEach(function (group) {
         var any = false;
@@ -2393,10 +2427,62 @@
         });
         if (group.querySelector('.nav-item')) group.hidden = !any;
       });
-      if (hint) hint.textContent = q
-        ? shown + ' tool' + (shown === 1 ? '' : 's') + ' match “' + input.value.trim() + '”'
-        : 'Items with a dot jump to their widget on the dashboard.';
-    };
+      if (clearBtn) clearBtn.hidden = !raw;
+      if (!hint) return;
+
+      hint.textContent = '';
+      if (!raw) {
+        hint.textContent = 'Items with a dot jump to their widget on the dashboard.';
+        return;
+      }
+      // Echo the query short. A pasted client ID is 70-odd characters and
+      // would otherwise push the message over the menu beneath it.
+      var echo = raw.length > 28 ? raw.slice(0, 28) + '…' : raw;
+      hint.appendChild(document.createTextNode(
+        shown + ' tool' + (shown === 1 ? '' : 's') + ' match “' + echo + '”'));
+
+      // A long id pasted into the menu filter is almost always meant for the
+      // Connections form. Offer the trip rather than leaving them stuck.
+      if (!shown && CLIENT_ID_ISH.test(raw)) {
+        var toConn = document.createElement('button');
+        toConn.className = 'nav-reset';
+        toConn.type = 'button';
+        toConn.textContent = 'That looks like a Google client ID — put it in Connections';
+        toConn.addEventListener('click', function () {
+          var value = input.value.trim();
+          reset();
+          showView('connections');
+          var field = $('fClientId');
+          if (field) {
+            field.value = value;
+            field.focus();
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('blur', { bubbles: true }));
+          }
+        });
+        hint.appendChild(toConn);
+      }
+
+      var reset_ = document.createElement('button');
+      reset_.className = 'nav-reset';
+      reset_.type = 'button';
+      reset_.textContent = shown ? 'Clear the filter' : 'Show the whole menu';
+      reset_.addEventListener('click', reset);
+      hint.appendChild(reset_);
+    }
+
+    function reset() {
+      input.value = '';
+      apply();
+      input.focus();
+    }
+
+    input.addEventListener('input', apply);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); reset(); }
+    });
+    if (clearBtn) clearBtn.addEventListener('click', reset);
+    apply();
   }
   wireSearch();
 
