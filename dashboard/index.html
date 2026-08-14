@@ -1597,29 +1597,6 @@
         </div>
       </section>
 
-      <section class="w" id="psiCard">
-        <div class="w-head">
-          <h3>Page speed</h3>
-          <span class="info" title="Google's own Lighthouse run — the same engine behind pagespeed.web.dev.">i</span>
-          <div class="w-tools">
-            <div class="tabs" id="psiTabs" role="tablist">
-              <button class="tab" role="tab" aria-selected="true" data-strategy="mobile">Mobile</button>
-              <button class="tab" role="tab" aria-selected="false" data-strategy="desktop">Desktop</button>
-            </div>
-            <button class="btn" id="psiRun">Check speed</button>
-          </div>
-        </div>
-        <p class="w-sub" id="psiSub">Runs Google&rsquo;s Lighthouse against one URL. Takes 20&ndash;40 seconds. Google rate-limits this per network unless you add a free key under <a href="#" data-goto="connections">Connections &amp; API keys</a>.</p>
-        <div class="w-body" style="padding-top:0">
-          <span class="field-hint" id="psiOut"></span>
-          <div id="psiResult" hidden>
-            <div class="kpis" id="psiScores"></div>
-            <div class="divider" style="margin:16px 0 12px"></div>
-            <div id="psiVitals"></div>
-            <div id="psiOpps"></div>
-          </div>
-        </div>
-      </section>
 
       <div id="auditResult" hidden>
         <section class="w">
@@ -1699,12 +1676,6 @@
 
               <div class="divider" id="tokenPasteDivider" style="margin:16px 0"></div>
 
-              <div class="field" id="psiKeyRow">
-                <label for="fPsiKey">PageSpeed API key <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label>
-                <input class="input" id="fPsiKey" type="text" spellcheck="false" placeholder="AIza…">
-                <span class="field-hint">Page speed works without one, but Google rate-limits by IP address. A free key from Google Cloud (Credentials → Create API key, with the PageSpeed Insights API enabled) removes that limit.</span>
-                <span class="field-hint" id="psiKeyState"></span>
-              </div>
 
               <div class="field" id="tokenPasteRow">
                 <label for="fToken">Or paste an access token</label>
@@ -3130,16 +3101,6 @@
     $('fGa4Prop').value = cfg.ga4Property;
     $('fGa4Meas').value = cfg.ga4Measurement;
     $('fSa').value = cfg.serviceAccount;
-    if ($('fPsiKey')) {
-      $('fPsiKey').value = cfg.psiKey || '';
-      var keyHint = $('psiKeyState');
-      if (keyHint) {
-        keyHint.textContent = serverStatus && serverStatus.psiKeyIsBundled
-          ? 'Using the key bundled with this copy of the app. Typing one here replaces it.'
-          : (cfg.psiKey ? 'Key saved.' : '');
-        keyHint.style.color = 'var(--good-text)';
-      }
-    }
     $('fToken').value = cfg.token;
     if (SERVER) {
       $('originLabel').textContent = 'Authorized redirect URI';
@@ -3230,8 +3191,7 @@
         clientId: cfg.clientId,
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
-        ga4Measurement: cfg.ga4Measurement,
-        psiKey: cfg.psiKey || ''
+        ga4Measurement: cfg.ga4Measurement
       };
       var secretField = $('fClientSecret');
       var secret = secretField ? secretField.value.trim() : '';
@@ -3250,7 +3210,6 @@
     cfg.ga4Property = $('fGa4Prop').value.trim().replace(/^properties\//, '');
     cfg.ga4Measurement = $('fGa4Meas').value.trim();
     cfg.serviceAccount = $('fSa').value.trim();
-    if ($('fPsiKey')) cfg.psiKey = $('fPsiKey').value.trim();
     var t = $('fToken').value.trim();
     if (t !== cfg.token) {
       cfg.token = t;
@@ -3434,14 +3393,14 @@
 
     // Leaving a settings field saves it, so no value can sit in the form
     // looking applied while the server has never seen it.
-    ['fGscSite', 'fGa4Prop', 'fGa4Meas', 'fClientSecret', 'fPsiKey'].forEach(function (id) {
+    ['fGscSite', 'fGa4Prop', 'fGa4Meas', 'fClientSecret'].forEach(function (id) {
       var el = $(id);
       if (!el) return;
       el.addEventListener('blur', function () {
         var before = JSON.stringify([cfg.gscSite, cfg.ga4Property, cfg.ga4Measurement]);
         readForm();
         if (JSON.stringify([cfg.gscSite, cfg.ga4Property, cfg.ga4Measurement]) === before &&
-            id !== 'fClientSecret' && id !== 'fPsiKey') return;
+            id !== 'fClientSecret') return;
         persistSettings().then(function () {
           gscRefreshChrome();
           ga4RefreshChrome();
@@ -3828,154 +3787,6 @@
           resetAuditControls();
           setPill($('auditPill'), 'err', 'Failed to start');
           say('auditOut', e.message, 'err');
-        });
-    });
-  }
-
-
-  /* ── PageSpeed Insights ───────────────────────────────────── */
-  var psi = { strategy: 'mobile', busy: false };
-
-  function psiScoreColour(v) {
-    if (v == null) return 'var(--ink-3)';
-    return v >= 90 ? 'var(--good-text)' : v >= 50 ? 'var(--warning)' : 'var(--critical-text)';
-  }
-
-  function fmtMetric(value, unit) {
-    if (value == null) return '—';
-    if (unit === 'score') return (value / 100).toFixed(2);
-    return value >= 1000 ? (value / 1000).toFixed(1) + ' s' : Math.round(value) + ' ms';
-  }
-
-  function renderPsi(d) {
-    $('psiResult').hidden = false;
-    $('psiSub').textContent = d.url + ' · ' + d.strategy +
-      (d.hasFieldData ? ' · includes real-visitor data' : ' · lab data only');
-
-    renderKpis($('psiScores'), [
-      { key: 'perf', label: 'Performance', value: '<span style="color:' + psiScoreColour(d.scores.performance) + '">' + (d.scores.performance == null ? '—' : d.scores.performance) + '</span>' },
-      { key: 'a11y', label: 'Accessibility', value: '<span style="color:' + psiScoreColour(d.scores.accessibility) + '">' + (d.scores.accessibility == null ? '—' : d.scores.accessibility) + '</span>' },
-      { key: 'bp', label: 'Best practices', value: '<span style="color:' + psiScoreColour(d.scores.bestPractices) + '">' + (d.scores.bestPractices == null ? '—' : d.scores.bestPractices) + '</span>' },
-      { key: 'seo', label: 'SEO', value: '<span style="color:' + psiScoreColour(d.scores.seo) + '">' + (d.scores.seo == null ? '—' : d.scores.seo) + '</span>' }
-    ], null, function () {});
-
-    var vitals = $('psiVitals');
-    vitals.innerHTML = '';
-    var head = document.createElement('div');
-    head.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:6px';
-    head.innerHTML = '<span class="eyebrow">' + (d.hasFieldData ? 'Core Web Vitals — real visitors' : 'Lab measurements') +
-      '</span><span class="eyebrow">' + d.strategy + '</span>';
-    vitals.appendChild(head);
-
-    var list = document.createElement('div');
-    list.className = 'vitals';
-
-    // Field data is what visitors actually experienced; prefer it when present.
-    var rows = d.hasFieldData
-      ? d.field.map(function (f) {
-          return { label: f.label, value: fmtMetric(f.value, f.unit), rating: f.rating };
-        })
-      : [
-          { label: 'Largest Contentful Paint', lab: d.lab.lcp, good: 2500, poor: 4000 },
-          { label: 'Cumulative Layout Shift', lab: d.lab.cls, good: 0.1, poor: 0.25, raw: true },
-          { label: 'Total Blocking Time', lab: d.lab.tbt, good: 200, poor: 600 },
-          { label: 'First Contentful Paint', lab: d.lab.fcp, good: 1800, poor: 3000 },
-          { label: 'Speed Index', lab: d.lab.si, good: 3400, poor: 5800 },
-          { label: 'Server response time', lab: d.lab.ttfb, good: 800, poor: 1800 }
-        ].filter(function (r) { return r.lab; }).map(function (r) {
-          var v = r.lab.value;
-          return {
-            label: r.label,
-            value: r.lab.display || fmtMetric(v, r.raw ? 'raw' : 'ms'),
-            rating: v <= r.good ? 'good' : v <= r.poor ? 'needs-improvement' : 'poor'
-          };
-        });
-
-    if (!rows.length) {
-      list.innerHTML = '<p style="margin:0;font-size:12.5px;color:var(--ink-3)">No metrics returned.</p>';
-    }
-    rows.forEach(function (r) {
-      var row = document.createElement('div');
-      row.className = 'vital';
-      row.innerHTML = '<span class="dot r-' + (r.rating || 'unknown') + '"></span>' +
-        '<span></span><span class="val"></span><span class="verdict"></span>';
-      row.children[1].textContent = r.label;
-      row.children[2].textContent = r.value;
-      row.children[3].textContent = (r.rating || 'unknown').replace('needs-improvement', 'needs work');
-      list.appendChild(row);
-    });
-    vitals.appendChild(list);
-
-    var opps = $('psiOpps');
-    opps.innerHTML = '';
-    if (d.opportunities && d.opportunities.length) {
-      var oHead = document.createElement('div');
-      oHead.style.cssText = 'margin:16px 0 2px';
-      oHead.innerHTML = '<span class="eyebrow">Biggest wins</span>';
-      opps.appendChild(oHead);
-      d.opportunities.forEach(function (o) {
-        var row = document.createElement('div');
-        row.className = 'opp';
-        var left = document.createElement('div');
-        var t = document.createElement('strong');
-        t.textContent = o.title;
-        left.appendChild(t);
-        var desc = document.createElement('p');
-        desc.appendChild(withLinks(o.description || ''));
-        left.appendChild(desc);
-        var save = document.createElement('span');
-        save.className = 'save';
-        save.textContent = '−' + (o.savingsMs >= 1000 ? (o.savingsMs / 1000).toFixed(1) + 's' : o.savingsMs + 'ms');
-        row.appendChild(left); row.appendChild(save);
-        opps.appendChild(row);
-      });
-    }
-  }
-
-  function wirePsi() {
-    var btn = $('psiRun');
-    if (!btn) return;
-
-    $('psiTabs').addEventListener('click', function (ev) {
-      var t = ev.target.closest('[data-strategy]');
-      if (!t) return;
-      if (psi.busy) { toast('Still measuring — one moment.'); return; }
-      var next = t.getAttribute('data-strategy');
-      if (next === psi.strategy) return;
-      this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
-      t.setAttribute('aria-selected', 'true');
-      psi.strategy = next;
-      // Showing mobile numbers under a Desktop tab would be a lie, so the old
-      // result goes and the new one is fetched straight away.
-      if (psi.lastResult) {
-        $('psiResult').hidden = true;
-        psi.lastResult = null;
-        $('psiRun').click();
-      }
-    });
-
-    btn.addEventListener('click', function () {
-      if (psi.busy) return;
-      if (!SERVER) {
-        say('psiOut', 'PageSpeed runs from the Twin SEO app — a sandboxed page cannot reach Google. Launch the app and try again.', 'err');
-        return;
-      }
-      var target = $('auditUrl').value.trim();
-      if (!target) { say('psiOut', 'Set a URL above first.', 'err'); return; }
-      psi.busy = true;
-      btn.disabled = true;
-      btn.textContent = 'Measuring…';
-      say('psiOut', 'Google is loading the page and measuring it — this takes 20 to 40 seconds.');
-      // Google's own run tops out well under this; anything longer is stuck.
-      srv('/api/pagespeed?strategy=' + psi.strategy + '&url=' + encodeURIComponent(target), null, 120000)
-        .then(function (d) {
-          psi.lastResult = d;
-          renderPsi(d);
-          say('psiOut', '');
-        })
-        .catch(function (e) { say('psiOut', e.message, 'err'); })
-        .then(function () {
-          psi.busy = false; btn.disabled = false; btn.textContent = 'Check speed';
         });
     });
   }
@@ -4428,7 +4239,6 @@
 
   wireConnections();
   wireAudit();
-  wirePsi();
   wireAiSearch();
   if ($('btnLive')) $('btnLive').addEventListener('click', refreshLiveDashboard);
   (function seedAuditUrl() {
