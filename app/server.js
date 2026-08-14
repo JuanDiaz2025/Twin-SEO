@@ -20,6 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 const { runAudit } = require('./audit');
+const { runAiScan } = require('./aisearch');
 
 // When packaged as a single executable the dashboard travels inside the binary
 // and settings live beside it, rather than in a source checkout.
@@ -475,6 +476,30 @@ function shapePsi(data, strategy, url) {
 
 module.exports = { shapePsi };
 
+/* ── AI Search readiness ────────────────────────────────────── */
+
+let aiScan = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url: '', startedAt: 0, stop: false };
+
+function startAiScan(startUrl, maxPages, pace) {
+  const tuning = PACE[pace] || PACE.normal;
+  aiScan = {
+    state: 'running', crawled: 0, total: 1, result: null, error: '',
+    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false
+  };
+  runAiScan(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
+    aiScan.crawled = done;
+    aiScan.total = total;
+    aiScan.lastBeat = Date.now();
+  }, () => aiScan.stop).then(result => {
+    aiScan.result = result;
+    aiScan.state = 'done';
+    aiScan.tookMs = Date.now() - aiScan.startedAt;
+  }).catch(err => {
+    aiScan.error = err.message || 'The scan failed.';
+    aiScan.state = 'error';
+  });
+}
+
 /* ── HTTP plumbing ──────────────────────────────────────────── */
 
 function send(res, status, body, type) {
@@ -626,6 +651,44 @@ const server = http.createServer(async (req, res) => {
       if (!target) return send(res, 400, { error: 'No URL to test.' });
       const strategy = url.searchParams.get('strategy') || 'mobile';
       return send(res, 200, await pageSpeed(target, strategy));
+    }
+
+    if (route === '/api/aisearch/start' && req.method === 'POST') {
+      const body = await readBody(req);
+      const raw = String(body.url || loadConfig().gscSite || '').trim();
+      if (!raw) return send(res, 400, { error: 'Give me a URL to scan.' });
+      let target;
+      try {
+        target = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^sc-domain:/, ''));
+      } catch (e) {
+        return send(res, 400, { error: `"${raw}" is not a URL I can scan.` });
+      }
+      if (aiScan.state === 'running') {
+        const stale = aiScan.lastBeat && Date.now() - aiScan.lastBeat > 5 * 60 * 1000;
+        if (!stale && !body.force) return send(res, 409, { error: 'An audit is already running.', url: aiScan.url });
+        aiScan.stop = true;
+      }
+      startAiScan(target.toString(), Math.min(1000, Math.max(1, Number(body.maxPages) || 25)), body.pace);
+      return send(res, 200, { started: true, url: target.toString() });
+    }
+
+    if (route === '/api/aisearch/stop' && req.method === 'POST') {
+      if (aiScan.state === 'running') aiScan.stop = true;
+      return send(res, 200, { stopping: aiScan.state === 'running' });
+    }
+
+    if (route === '/api/aisearch/status') {
+      if (aiScan.state === 'running' && aiScan.lastBeat && Date.now() - aiScan.lastBeat > 5 * 60 * 1000) {
+        aiScan.state = 'error';
+        aiScan.error = 'The scan stopped responding and was abandoned. Run it again.';
+      }
+      return send(res, 200, {
+        state: aiScan.state, crawled: aiScan.crawled, total: aiScan.total, url: aiScan.url,
+        error: aiScan.error, elapsedMs: aiScan.startedAt ? Date.now() - aiScan.startedAt : 0,
+        stopping: Boolean(aiScan.stop && aiScan.state === 'running'),
+        tookMs: aiScan.tookMs || 0,
+        result: aiScan.state === 'done' ? aiScan.result : null
+      });
     }
 
     if (route === '/api/audit/stop' && req.method === 'POST') {

@@ -863,7 +863,7 @@
         <button class="nav-item" data-target="w-oti"><span class="dot"></span>Organic Traffic Insights</button>
         <button class="nav-item" data-target="w-linkbuilding"><span class="dot"></span>Link Building</button>
         <button class="nav-item" data-target="w-listing"><span class="dot"></span>Listing Management</button>
-        <button class="nav-item" data-target="w-aisearch"><span class="dot"></span>AI Search</button>
+        <button class="nav-item" data-view="aisearch"><span class="dot"></span>AI Search</button>
       </div>
       <div class="nav-sep"></div>
       <div class="nav-group">
@@ -1467,6 +1467,73 @@
       </section>
     </main>
 
+
+
+    <!-- ══ AI Search ═════════════════════════════════════════ -->
+    <main class="canvas view" id="view-aisearch" hidden>
+      <section class="w">
+        <div class="w-head">
+          <h3>Can AI assistants quote you?</h3>
+          <span class="info" title="Checks what decides whether ChatGPT, AI Overviews, Gemini and Perplexity can cite this site.">i</span>
+          <div class="w-tools"><span class="status-pill" id="aiPill"><i></i>Not run yet</span></div>
+        </div>
+        <div class="w-body">
+          <div class="form-grid form-2">
+            <div class="field">
+              <label for="aiUrl">Site to check</label>
+              <input class="input" id="aiUrl" type="text" spellcheck="false" placeholder="https://www.twinhomebuyer.com/">
+              <span class="field-hint">Reads robots.txt, your structured data, and how your content is shaped.</span>
+            </div>
+            <div class="field">
+              <label for="aiMax">Pages to sample</label>
+              <select class="input" id="aiMax">
+                <option value="15">15 — quick look</option>
+                <option value="25" selected>25 — normal</option>
+                <option value="60">60 — thorough</option>
+                <option value="150">150 — deep</option>
+              </select>
+              <span class="field-hint">Paced the same way as Site Audit, and it backs off if your server asks.</span>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            <button class="btn btn-primary" id="aiRun">Check AI readiness</button>
+            <button class="btn" id="aiStop" hidden>Stop</button>
+            <span class="field-hint" id="aiOut"></span>
+          </div>
+          <div id="aiProgress" hidden style="margin-top:14px">
+            <div class="dist-track" style="height:6px"><span class="dist-fill" id="aiBar" style="width:0%;background:var(--accent-line)"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <div id="aiResult" hidden>
+        <section class="w">
+          <div class="w-head">
+            <h3>AI readiness</h3>
+            <div class="w-tools"><span class="chip" id="aiMeta"></span></div>
+          </div>
+          <div class="w-body">
+            <div class="kpis" id="aiKpis"></div>
+          </div>
+        </section>
+
+        <section class="w">
+          <div class="w-head">
+            <h3>Who is allowed in</h3>
+            <span class="info" title="Read from your robots.txt. A blocked crawler can never cite you.">i</span>
+          </div>
+          <p class="w-sub">Every assistant reaches your site through its own crawler. Blocking one costs you every citation from it.</p>
+          <div class="w-body" style="padding-top:0">
+            <div style="overflow-x:auto"><table class="data-tbl" id="aiBots"></table></div>
+          </div>
+        </section>
+
+        <section class="w">
+          <div class="w-head"><h3>What to change</h3></div>
+          <div class="w-body"><div id="aiIssues"></div></div>
+        </section>
+      </div>
+    </main>
 
     <!-- ══ Site Audit ════════════════════════════════════════ -->
     <main class="canvas view" id="view-audit" hidden>
@@ -3404,94 +3471,14 @@
   }
 
 
-  /* ── Site Audit ───────────────────────────────────────────── */
-  var auditTimer = null;
-
-  function auditSeverityBar(counts) {
-    var host = $('auditBarChart');
-    if (!host) return;
+  function renderIssueList(host, issues, emptyMsg) {
     host.innerHTML = '';
-    var total = counts.error + counts.warning + counts.notice;
-    if (!total) {
-      host.innerHTML = '<p style="margin:0;font-size:12.5px;color:var(--good-text)">' +
-        'Nothing flagged across the pages crawled.</p>';
+    if (!issues.length) {
+      host.innerHTML = '<p style="margin:0;font-size:13px;color:var(--good-text)"></p>';
+      host.firstChild.textContent = emptyMsg;
       return;
     }
-    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 14, gap = 2;
-    var parts = [
-      { k: 'Errors', v: counts.error, c: css('--critical') },
-      { k: 'Warnings', v: counts.warning, c: css('--warning') },
-      { k: 'Notices', v: counts.notice, c: css('--ink-3') }
-    ].filter(function (p) { return p.v > 0; });
-
-    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
-      'aria-label': counts.error + ' errors, ' + counts.warning + ' warnings, ' + counts.notice + ' notices' });
-    var x = 0, tip = makeTip(host);
-    parts.forEach(function (p, i) {
-      var w = p.v / total * W - (i < parts.length - 1 ? gap : 0);
-      var rect = el('rect', { x: x, y: 0, width: Math.max(3, w), height: H, rx: 4, fill: p.c });
-      rect.addEventListener('pointerenter', function (ev) {
-        var r = host.getBoundingClientRect();
-        tip.show(ev.clientX - r.left, H, p.k, p.v + ' found', p.c);
-      });
-      rect.addEventListener('pointerleave', function () { tip.hide(); });
-      svg.appendChild(rect);
-      x += p.v / total * W;
-    });
-    host.appendChild(svg);
-
-    var legend = document.createElement('div');
-    legend.className = 'chart-legend';
-    parts.forEach(function (p) {
-      var span = document.createElement('span');
-      span.innerHTML = '<i style="background:' + p.c + '"></i>';
-      span.appendChild(document.createTextNode(p.k + ' · ' + p.v));
-      legend.appendChild(span);
-    });
-    host.appendChild(legend);
-  }
-
-  function renderAudit(r, tookMs) {
-    $('auditResult').hidden = false;
-    var grade = r.health >= 90 ? 'Healthy' : r.health >= 75 ? 'Needs attention' : r.health >= 50 ? 'Poor' : 'Critical';
-    var tone = r.health >= 90 ? 'var(--good-text)' : r.health >= 75 ? 'var(--ink)' : 'var(--critical-text)';
-
-    renderKpis($('auditKpis'), [
-      { key: 'health', label: 'Site health', value: '<span style="color:' + tone + '">' + r.health + '<span style="font-size:15px;color:var(--ink-3)">/100</span></span>', note: grade },
-      { key: 'errors', label: 'Errors', value: fmtInt(r.counts.error), note: 'break things' },
-      { key: 'warnings', label: 'Warnings', value: fmtInt(r.counts.warning), note: 'worth fixing' },
-      { key: 'notices', label: 'Notices', value: fmtInt(r.counts.notice), note: 'nice to have' }
-    ], null, function () {});
-
-    // If the host asked us to slow down, say so — it changes how the timings
-    // and any remaining errors should be read.
-    var meta = $('auditMeta').parentNode.parentNode;
-    var prior = meta.querySelector('.throttle-note');
-    if (prior) prior.remove();
-    if (r.throttled) {
-      var note = document.createElement('div');
-      note.className = 'note throttle-note';
-      note.style.margin = '12px 13px 0';
-      note.innerHTML = '<span class="note-glyph">i</span><span></span>';
-      note.lastChild.textContent = 'Your server asked the crawler to slow down ' + r.throttleHits +
-        ' time' + (r.throttleHits === 1 ? '' : 's') + ', so it did. Timings after that point include the extra wait. ' +
-        'Re-run at Gentle for the cleanest measurements.';
-      meta.appendChild(note);
-    }
-
-    var rate = tookMs ? (r.crawled / (tookMs / 1000)).toFixed(1) : '0';
-    $('auditMeta').textContent = r.crawled + ' pages · ' + (tookMs ? (tookMs / 1000).toFixed(1) + 's' : '') +
-      ' · ' + rate + ' pages/sec' +
-      (r.robots.found ? ' · robots.txt honoured' : ' · no robots.txt');
-    auditSeverityBar(r.counts);
-
-    var host = $('auditIssues');
-    host.innerHTML = '';
-    if (!r.issues.length) {
-      host.innerHTML = '<p style="margin:0;font-size:13px;color:var(--good-text)">' +
-        'No problems found across ' + r.crawled + ' pages.</p>';
-    }
-    r.issues.forEach(function (issue, idx) {
+    issues.forEach(function (issue, idx) {
       var d = document.createElement('details');
       d.className = 'issue';
       var sum = document.createElement('summary');
@@ -3584,6 +3571,90 @@
       d.appendChild(body);
       host.appendChild(d);
     });
+  }
+
+  /* ── Site Audit ───────────────────────────────────────────── */
+  var auditTimer = null;
+
+  function auditSeverityBar(counts) {
+    var host = $('auditBarChart');
+    if (!host) return;
+    host.innerHTML = '';
+    var total = counts.error + counts.warning + counts.notice;
+    if (!total) {
+      host.innerHTML = '<p style="margin:0;font-size:12.5px;color:var(--good-text)">' +
+        'Nothing flagged across the pages crawled.</p>';
+      return;
+    }
+    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 14, gap = 2;
+    var parts = [
+      { k: 'Errors', v: counts.error, c: css('--critical') },
+      { k: 'Warnings', v: counts.warning, c: css('--warning') },
+      { k: 'Notices', v: counts.notice, c: css('--ink-3') }
+    ].filter(function (p) { return p.v > 0; });
+
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+      'aria-label': counts.error + ' errors, ' + counts.warning + ' warnings, ' + counts.notice + ' notices' });
+    var x = 0, tip = makeTip(host);
+    parts.forEach(function (p, i) {
+      var w = p.v / total * W - (i < parts.length - 1 ? gap : 0);
+      var rect = el('rect', { x: x, y: 0, width: Math.max(3, w), height: H, rx: 4, fill: p.c });
+      rect.addEventListener('pointerenter', function (ev) {
+        var r = host.getBoundingClientRect();
+        tip.show(ev.clientX - r.left, H, p.k, p.v + ' found', p.c);
+      });
+      rect.addEventListener('pointerleave', function () { tip.hide(); });
+      svg.appendChild(rect);
+      x += p.v / total * W;
+    });
+    host.appendChild(svg);
+
+    var legend = document.createElement('div');
+    legend.className = 'chart-legend';
+    parts.forEach(function (p) {
+      var span = document.createElement('span');
+      span.innerHTML = '<i style="background:' + p.c + '"></i>';
+      span.appendChild(document.createTextNode(p.k + ' · ' + p.v));
+      legend.appendChild(span);
+    });
+    host.appendChild(legend);
+  }
+
+  function renderAudit(r, tookMs) {
+    $('auditResult').hidden = false;
+    var grade = r.health >= 90 ? 'Healthy' : r.health >= 75 ? 'Needs attention' : r.health >= 50 ? 'Poor' : 'Critical';
+    var tone = r.health >= 90 ? 'var(--good-text)' : r.health >= 75 ? 'var(--ink)' : 'var(--critical-text)';
+
+    renderKpis($('auditKpis'), [
+      { key: 'health', label: 'Site health', value: '<span style="color:' + tone + '">' + r.health + '<span style="font-size:15px;color:var(--ink-3)">/100</span></span>', note: grade },
+      { key: 'errors', label: 'Errors', value: fmtInt(r.counts.error), note: 'break things' },
+      { key: 'warnings', label: 'Warnings', value: fmtInt(r.counts.warning), note: 'worth fixing' },
+      { key: 'notices', label: 'Notices', value: fmtInt(r.counts.notice), note: 'nice to have' }
+    ], null, function () {});
+
+    // If the host asked us to slow down, say so — it changes how the timings
+    // and any remaining errors should be read.
+    var meta = $('auditMeta').parentNode.parentNode;
+    var prior = meta.querySelector('.throttle-note');
+    if (prior) prior.remove();
+    if (r.throttled) {
+      var note = document.createElement('div');
+      note.className = 'note throttle-note';
+      note.style.margin = '12px 13px 0';
+      note.innerHTML = '<span class="note-glyph">i</span><span></span>';
+      note.lastChild.textContent = 'Your server asked the crawler to slow down ' + r.throttleHits +
+        ' time' + (r.throttleHits === 1 ? '' : 's') + ', so it did. Timings after that point include the extra wait. ' +
+        'Re-run at Gentle for the cleanest measurements.';
+      meta.appendChild(note);
+    }
+
+    var rate = tookMs ? (r.crawled / (tookMs / 1000)).toFixed(1) : '0';
+    $('auditMeta').textContent = r.crawled + ' pages · ' + (tookMs ? (tookMs / 1000).toFixed(1) + 's' : '') +
+      ' · ' + rate + ' pages/sec' +
+      (r.robots.found ? ' · robots.txt honoured' : ' · no robots.txt');
+    auditSeverityBar(r.counts);
+
+    renderIssueList($('auditIssues'), r.issues, 'No problems found across ' + r.crawled + ' pages.');
 
     $('auditPageCount').textContent = r.pages.length + ' pages';
     renderTable($('auditPages'), [
@@ -3900,6 +3971,147 @@
     });
   }
 
+
+  /* ── AI Search readiness ──────────────────────────────────── */
+  var aiTimer = null;
+
+  function resetAiControls() {
+    $('aiRun').disabled = false;
+    $('aiRun').textContent = 'Check AI readiness';
+    var stop = $('aiStop');
+    stop.hidden = true; stop.disabled = false; stop.textContent = 'Stop';
+    $('aiProgress').hidden = true;
+    if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
+  }
+
+  function attachToAiScan() {
+    $('aiRun').disabled = true;
+    $('aiRun').textContent = 'Checking…';
+    var stop = $('aiStop');
+    stop.hidden = false; stop.disabled = false; stop.textContent = 'Stop';
+    $('aiProgress').hidden = false;
+    if (aiTimer) clearInterval(aiTimer);
+    aiTimer = setInterval(pollAi, 700);
+    pollAi();
+  }
+
+  function renderAi(r, tookMs) {
+    $('aiResult').hidden = false;
+    var grade = r.score >= 90 ? 'Well placed' : r.score >= 70 ? 'Some gaps' : r.score >= 45 ? 'Hard to cite' : 'Largely invisible';
+    var tone = r.score >= 90 ? 'var(--good-text)' : r.score >= 70 ? 'var(--ink)' : 'var(--critical-text)';
+    var blocked = r.access.bots.filter(function (b) { return b.state === 'blocked'; }).length;
+
+    renderKpis($('aiKpis'), [
+      { key: 'score', label: 'AI readiness', value: '<span style="color:' + tone + '">' + r.score + '<span style="font-size:15px;color:var(--ink-3)">/100</span></span>', note: grade },
+      { key: 'bots', label: 'Assistants allowed', value: (r.access.bots.length - blocked) + '<span style="font-size:15px;color:var(--ink-3)">/' + r.access.bots.length + '</span>', note: blocked ? blocked + ' blocked' : 'none blocked' },
+      { key: 'schema', label: 'Pages with schema', value: r.entity.withSchema + '<span style="font-size:15px;color:var(--ink-3)">/' + r.pagesAnalysed + '</span>', note: r.entity.types.length + ' types in use' },
+      { key: 'q', label: 'Question-shaped headings', value: r.entity.questionShare + '%', note: r.entity.questionHeadings + ' of ' + r.entity.headings }
+    ], null, function () {});
+
+    $('aiMeta').textContent = r.pagesAnalysed + ' pages · ' + (tookMs ? (tookMs / 1000).toFixed(1) + 's' : '') +
+      (r.access.llmsTxt ? ' · llms.txt found' : '');
+
+    renderTable($('aiBots'), [
+      { key: 'engine', label: 'Assistant' },
+      { key: 'ua', label: 'Crawler' },
+      { key: 'verdict', label: 'Access' },
+      { key: 'role', label: 'What it feeds' }
+    ], r.access.bots.map(function (b) {
+      return { engine: b.engine, ua: b.ua, verdict: b.state === 'blocked' ? 'BLOCKED' : 'allowed', role: b.role };
+    }), null, true);
+    // Colour the verdict column so a block is impossible to miss.
+    $('aiBots').querySelectorAll('tbody tr').forEach(function (tr) {
+      var cell = tr.children[2];
+      if (!cell) return;
+      var bad = cell.textContent === 'BLOCKED';
+      cell.style.color = bad ? 'var(--critical-text)' : 'var(--good-text)';
+      cell.style.fontWeight = bad ? '700' : '600';
+    });
+
+    renderIssueList($('aiIssues'), r.issues, 'Nothing blocking citation across the pages sampled.');
+  }
+
+  function pollAi() {
+    srv('/api/aisearch/status', null, 15000).then(function (s) {
+      if (s.state === 'running') {
+        var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
+        $('aiBar').style.width = Math.max(4, pct) + '%';
+        say('aiOut', s.stopping ? 'Stopping…' : 'Reading — ' + s.crawled + ' of about ' + s.total + ' pages…');
+        setPill($('aiPill'), 'warn', 'Running');
+        return;
+      }
+      resetAiControls();
+      if (s.state === 'error') {
+        setPill($('aiPill'), 'err', 'Failed');
+        say('aiOut', s.error, 'err');
+        return;
+      }
+      if (s.state === 'done' && s.result) {
+        setPill($('aiPill'), s.result.counts.error ? 'warn' : 'ok', 'Readiness ' + s.result.score + '/100');
+        say('aiOut', 'Checked ' + s.result.pagesAnalysed + ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', 'ok');
+        if (s.url) $('aiUrl').value = s.url;
+        renderAi(s.result, s.tookMs);
+      }
+    }).catch(function (e) {
+      resetAiControls();
+      setPill($('aiPill'), 'err', 'Lost contact');
+      say('aiOut', e.message, 'err');
+    });
+  }
+
+  function syncAiState() {
+    if (!SERVER) return;
+    srv('/api/aisearch/status', null, 15000).then(function (s) {
+      if (s.state === 'running') { attachToAiScan(); return; }
+      if (s.state === 'done' && s.result) {
+        resetAiControls();
+        setPill($('aiPill'), s.result.counts.error ? 'warn' : 'ok', 'Readiness ' + s.result.score + '/100');
+        say('aiOut', 'Last check — ' + s.result.pagesAnalysed + ' pages.', 'ok');
+        if (s.url) $('aiUrl').value = s.url;
+        renderAi(s.result, s.tookMs);
+      }
+    }).catch(function () {});
+  }
+
+  function wireAiSearch() {
+    var runBtn = $('aiRun');
+    if (!runBtn) return;
+
+    $('aiStop').addEventListener('click', function () {
+      $('aiStop').disabled = true;
+      $('aiStop').textContent = 'Stopping…';
+      srv('/api/aisearch/stop', {}).catch(function () {});
+    });
+
+    runBtn.addEventListener('click', function () {
+      if (!SERVER) {
+        alertBar('aiKpis', 'This check reads your live site, which a sandboxed page cannot do. Run the Twin SEO app and try again.');
+        $('aiResult').hidden = false;
+        return;
+      }
+      var url = $('aiUrl').value.trim();
+      if (!url) { say('aiOut', 'Give me a URL to check.', 'err'); return; }
+      runBtn.disabled = true;
+      runBtn.textContent = 'Checking…';
+      $('aiStop').hidden = false;
+      $('aiProgress').hidden = false;
+      $('aiBar').style.width = '4%';
+      say('aiOut', 'Starting…');
+      srv('/api/aisearch/start', { url: url, maxPages: Number($('aiMax').value), pace: 'normal' }, 30000)
+        .then(function () {
+          if (aiTimer) clearInterval(aiTimer);
+          aiTimer = setInterval(pollAi, 700);
+          pollAi();
+        })
+        .catch(function (e) {
+          if (/already running/i.test(e.message)) { attachToAiScan(); return; }
+          resetAiControls();
+          setPill($('aiPill'), 'err', 'Failed to start');
+          say('aiOut', e.message, 'err');
+        });
+    });
+  }
+
   /* ── View routing ─────────────────────────────────────────── */
   var VIEW_META = {
     dashboard: {
@@ -3916,6 +4128,11 @@
       crumb: 'Google Data', tag: 'Analytics 4',
       title: 'Google Analytics 4: <span class="domain">www.twinhomebuyer.com</span>',
       strip: 'Sessions, users and engagement from the GA4 Data API.'
+    },
+    aisearch: {
+      crumb: 'AI Search', tag: 'AI Visibility',
+      title: 'AI Search: <span class="domain">www.twinhomebuyer.com</span>',
+      strip: 'What decides whether ChatGPT, AI Overviews, Gemini and Perplexity can quote you — and what to change.'
     },
     audit: {
       crumb: 'Site Performance', tag: 'Site Audit',
@@ -3942,6 +4159,11 @@
     $('pageStrip').innerHTML = m.strip;
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (name === 'connections') fillForm();
+    if (name === 'aisearch') {
+      var au = $('aiUrl');
+      if (au && !au.value) au.value = (cfg.gscSite || 'https://www.twinhomebuyer.com/').replace(/^sc-domain:/, 'https://');
+      syncAiState();
+    }
     if (name === 'audit') {
       var f = $('auditUrl');
       if (f && !f.value && cfg.gscSite) f.value = cfg.gscSite;
@@ -4032,6 +4254,7 @@
   wireConnections();
   wireAudit();
   wirePsi();
+  wireAiSearch();
   (function seedAuditUrl() {
     var f = $('auditUrl');
     if (!f) return;

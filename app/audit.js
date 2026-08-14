@@ -408,6 +408,38 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
       page.words = stripTags(html).split(' ').filter(Boolean).length;
       page.firstText = stripTags(body).slice(0, 400);
 
+      // ── Signals that decide whether an AI assistant can quote this page ──
+      page.schemaTypes = [];
+      page.schemaBroken = 0;
+      page.sameAs = [];
+      page.dateModified = '';
+      const blocks = html.match(/<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+      for (const block of blocks) {
+        const raw = block.replace(/^[\s\S]*?>/, '').replace(/<\/script>$/i, '').trim();
+        try {
+          const parsed = JSON.parse(raw);
+          const nodes = [].concat(parsed['@graph'] || parsed);
+          for (const node of nodes) {
+            if (!node || typeof node !== 'object') continue;
+            [].concat(node['@type'] || []).forEach(t => { if (t) page.schemaTypes.push(String(t)); });
+            if (node.sameAs) page.sameAs = page.sameAs.concat([].concat(node.sameAs));
+            if (node.dateModified && !page.dateModified) page.dateModified = String(node.dateModified);
+          }
+        } catch (e) { page.schemaBroken++; }
+      }
+
+      const headingTags = html.match(/<h([23])\b[^>]*>([\s\S]*?)<\/h\1>/gi) || [];
+      page.headings = headingTags.slice(0, 60).map(h => stripTags(h).slice(0, 120)).filter(Boolean);
+      page.questionHeadings = page.headings.filter(h =>
+        /\?\s*$/.test(h) || /^(how|what|why|when|where|who|which|can|do|does|is|are|should|will)\b/i.test(h));
+
+      page.lists = (html.match(/<(ul|ol)\b/gi) || []).length;
+      page.tables = (html.match(/<table\b/gi) || []).length;
+      if (!page.dateModified) {
+        const timeTag = html.match(/<time[^>]+datetime\s*=\s*["']([^"']+)["']/i);
+        if (timeTag) page.dateModified = timeTag[1];
+      }
+
       const links = extractLinks(html, url);
       page.internalLinks = 0;
       for (const link of links) {
@@ -667,4 +699,4 @@ async function runAudit(startUrl, options, onProgress, shouldStop) {
   return result;
 }
 
-module.exports = { runAudit, CHECKS };
+module.exports = { runAudit, CHECKS, crawl, stripTags };
