@@ -1,0 +1,190 @@
+{
+  "source": "Semrush export \u2014 Organic Positions, US desktop",
+  "dataDate": "2026-08-12",
+  "exportedAt": "2026-08-13T17:12:56Z",
+  "capturedAt": "2026-08-14T18:02:15Z",
+  "domain": "www.twinhomebuyer.com",
+  "organic": {
+    "keywords": 279,
+    "traffic": 138,
+    "trafficCost": 2705,
+    "searchVolume": 34070,
+    "distribution": {
+      "top3": 14,
+      "p4_10": 48,
+      "p11_20": 44,
+      "p21_50": 108,
+      "p51": 65
+    },
+    "topKeywords": [
+      {
+        "keyword": "cash buyer",
+        "position": 4,
+        "volume": 880,
+        "traffic": 19,
+        "difficulty": 20,
+        "url": "/how-cash-home-buyers-work-california/"
+      },
+      {
+        "keyword": "cash buyers",
+        "position": 10,
+        "volume": 4400,
+        "traffic": 13,
+        "difficulty": 51,
+        "url": "/how-cash-home-buyers-work-california/"
+      },
+      {
+        "keyword": "sell my house fast dixon",
+        "position": 2,
+        "volume": 170,
+        "traffic": 11,
+        "difficulty": 1,
+        "url": "/sell-my-house-fast-dixon/"
+      },
+      {
+        "keyword": "we buy houses san francisco",
+        "position": 1,
+        "volume": 170,
+        "traffic": 10,
+        "difficulty": 17,
+        "url": "/sell-my-house-fast-san-francisco-cash-buyers-2025/"
+      },
+      {
+        "keyword": "sell my house fast concord",
+        "position": 1,
+        "volume": 140,
+        "traffic": 9,
+        "difficulty": 5,
+        "url": "/we-buy-houses-in-concord-ca/"
+      },
+      {
+        "keyword": "equity track inc",
+        "position": 5,
+        "volume": 320,
+        "traffic": 9,
+        "difficulty": 20,
+        "url": "/equity-track-inc-powered-by-twin-home-buyer/"
+      },
+      {
+        "keyword": "we buy houses cash union city",
+        "position": 1,
+        "volume": 40,
+        "traffic": 7,
+        "difficulty": 2,
+        "url": "/we-buy-houses-in-union-city/"
+      },
+      {
+        "keyword": "sell my house fast concord ca",
+        "position": 1,
+        "volume": 90,
+        "traffic": 5,
+        "difficulty": 4,
+        "url": "/we-buy-houses-in-concord-ca/"
+      },
+      {
+        "keyword": "cash home buyers in california",
+        "position": 6,
+        "volume": 210,
+        "traffic": 4,
+        "difficulty": 21,
+        "url": "/"
+      },
+      {
+        "keyword": "sell my house fast san jose",
+        "position": 5,
+        "volume": 170,
+        "traffic": 4,
+        "difficulty": 10,
+        "url": "/we-buy-houses-san-jose-ca/"
+      },
+      {
+        "keyword": "sell my house fast concord california",
+        "position": 1,
+        "volume": 70,
+        "traffic": 4,
+        "difficulty": 2,
+        "url": "/we-buy-houses-in-concord-ca/"
+      },
+      {
+        "keyword": "cashbuyers",
+        "position": 8,
+        "volume": 260,
+        "traffic": 3,
+        "difficulty": 51,
+        "url": "/how-cash-home-buyers-work-california/"
+      },
+      {
+        "keyword": "seismic retrofit san francisco",
+        "position": 5,
+        "volume": 140,
+        "traffic": 3,
+        "difficulty": 23,
+        "url": "/seismic-retrofit-costs-in-san-francisco-a-comprehensive-guide-2025-update/"
+      },
+      {
+        "keyword": "twin home buyer",
+        "position": 8,
+        "volume": 210,
+        "traffic": 3,
+        "difficulty": 26,
+        "url": "/sell-your-house-fast/"
+      },
+      {
+        "keyword": "cash home buyers california",
+        "position": 6,
+        "volume": 140,
+        "traffic": 3,
+        "difficulty": 28,
+        "url": "/how-cash-home-buyers-work-california/"
+      }
+    ],
+    "topPages": [
+      {
+        "url": "/how-cash-home-buyers-work-california/",
+        "traffic": 40
+      },
+      {
+        "url": "/we-buy-houses-in-concord-ca/",
+        "traffic": 19
+      },
+      {
+        "url": "/sell-my-house-fast-dixon/",
+        "traffic": 11
+      },
+      {
+        "url": "/sell-my-house-fast-san-francisco-cash-buyers-2025/",
+        "traffic": 11
+      },
+      {
+        "url": "/equity-track-inc-powered-by-twin-home-buyer/",
+        "traffic": 10
+      },
+      {
+        "url": "/",
+        "traffic": 9
+      },
+      {
+        "url": "/we-buy-houses-in-union-city/",
+        "traffic": 8
+      },
+      {
+        "url": "/we-buy-houses-san-jose-ca/",
+        "traffic": 7
+      },
+      {
+        "url": "/seismic-retrofit-costs-in-san-francisco-a-comprehensive-guide-2025-update/",
+        "traffic": 5
+      },
+      {
+        "url": "/",
+        "traffic": 4
+      }
+    ]
+  },
+  "backlinks": {
+    "source": "Semrush export \u2014 Backlinks / Referring Domains",
+    "referringDomains": 106,
+    "backlinks": 184,
+    "note": "From the backlinks anchor export; re-parse when a fresher file lands."
+  }
+}

@@ -506,9 +506,22 @@ function startAiScan(startUrl, maxPages, pace) {
    being unavailable must not blank the rest.
    ─────────────────────────────────────────────────────────────── */
 
+// Real Semrush figures, exported from the Drive folder. Live sources override
+// these wherever one is connected; they are never invented.
+const SEMRUSH_FILE = path.join(__dirname, 'semrush-snapshot.json');
+
 async function dashboardData(days) {
   const cfg = loadConfig();
   const out = { fetchedAt: new Date().toISOString(), sources: {}, notes: [] };
+
+  const semrush = readJson(SEMRUSH_FILE, null);
+  if (semrush) {
+    out.semrush = semrush;
+    out.sources.semrush = 'export';
+  } else {
+    out.semrush = null;
+    out.sources.semrush = 'unavailable';
+  }
 
   const attempt = async (name, fn) => {
     try {

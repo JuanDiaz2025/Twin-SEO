@@ -4041,6 +4041,60 @@
   function applyLiveDashboard(d) {
     var touched = [];
 
+    // Real Semrush figures from the export. Google's live numbers, applied
+    // below, take precedence where they measure the same thing.
+    if (d.semrush && d.semrush.organic) {
+      var o = d.semrush.organic;
+      setMetric('w-seo', 'Organic Traffic', fmtInt(o.traffic), 'Semrush estimate · ' + d.semrush.dataDate);
+      setMetric('w-seo', 'Organic Keywords', fmtInt(o.keywords), o.distribution.top3 + ' in the top 3');
+      markLive('w-seo', d.semrush.exportedAt);
+      var seoTag = $('w-seo') && $('w-seo').querySelector('.live-tag');
+      if (seoTag) { seoTag.textContent = 'SEMRUSH'; seoTag.style.background = 'var(--accent)'; }
+
+      // Organic Rankings gets the real position spread.
+      var rank = $('w-rankings');
+      if (rank) {
+        var host = rank.querySelector('.w-body');
+        if (host) {
+          host.innerHTML = '<span class="eyebrow">Keywords by position</span><div class="dist" style="margin-top:8px"></div>' +
+            '<div class="divider" style="margin:14px 0 10px"></div>' +
+            '<span class="eyebrow">Top keywords</span><div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>';
+          var bands = [
+            { band: 'Top 3',  n: o.distribution.top3 },
+            { band: '4–10',   n: o.distribution.p4_10 },
+            { band: '11–20',  n: o.distribution.p11_20 },
+            { band: '21–50',  n: o.distribution.p21_50 },
+            { band: '51+',    n: o.distribution.p51 }
+          ];
+          var max = Math.max.apply(null, bands.map(function (b) { return b.n; })) || 1;
+          var dist = host.querySelector('.dist');
+          bands.forEach(function (b, i) {
+            var row = document.createElement('div');
+            row.className = 'dist-row';
+            row.innerHTML = '<span class="band"></span>' +
+              '<span class="dist-track"><span class="dist-fill"></span></span>' +
+              '<span class="pct num"></span><span class="ct num"></span>';
+            row.children[0].textContent = b.band;
+            row.children[1].firstChild.style.width = Math.max(2, b.n / max * 100) + '%';
+            row.children[1].firstChild.style.background = css('--r' + (i + 1));
+            row.children[2].textContent = Math.round(b.n / o.keywords * 100) + '%';
+            row.children[3].textContent = b.n;
+            dist.appendChild(row);
+          });
+          renderTable(host.querySelector('table'), [
+            { key: 'keyword', label: 'Keyword' },
+            { key: 'position', label: 'Pos' },
+            { key: 'volume', label: 'Volume', fmt: fmtInt },
+            { key: 'traffic', label: 'Traffic', fmt: fmtInt }
+          ], o.topKeywords.slice(0, 8));
+        }
+        markLive('w-rankings', d.semrush.exportedAt);
+        var rtag = rank.querySelector('.live-tag');
+        if (rtag) { rtag.textContent = 'SEMRUSH'; rtag.style.background = 'var(--accent)'; }
+      }
+      touched.push('Organic Rankings (Semrush export)');
+    }
+
     if (d.searchConsole) {
       var g = d.searchConsole;
       setMetric('w-seo', 'Organic Traffic', fmtInt(g.clicks), g.days + ' days of Search Console clicks');
@@ -4140,7 +4194,10 @@
     say('liveOut', 'Pulling from every connected source…');
     srv('/api/dashboard?days=28', null, 90000).then(function (d) {
       var touched = applyLiveDashboard(d);
-      var missing = Object.keys(d.sources).filter(function (k) { return d.sources[k] !== 'live'; });
+      // An export is applied data, not something still waiting to be wired.
+      var missing = Object.keys(d.sources).filter(function (k) {
+        return d.sources[k] !== 'live' && d.sources[k] !== 'export';
+      });
       if (touched.length) {
         $('pageTag').textContent = 'Live';
         $('pageStrip').innerHTML = '';
