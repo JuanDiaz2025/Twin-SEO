@@ -36,7 +36,15 @@ const CHECKS = {
   notHttps:         { severity: 'error',   weight: 8,  title: 'Page served over HTTP' },
   noindex:          { severity: 'notice',  weight: 2,  title: 'Blocked from indexing' },
   thinContent:      { severity: 'notice',  weight: 1,  title: 'Very little text' },
-  largePage:        { severity: 'notice',  weight: 1,  title: 'Large page weight' }
+  largePage:        { severity: 'notice',  weight: 1,  title: 'Large page weight' },
+  brokenExternal:   { severity: 'error',   weight: 6,  title: 'Broken links to other sites' },
+  mixedContent:     { severity: 'error',   weight: 7,  title: 'Insecure content on a secure page' },
+  multipleCanonical:{ severity: 'error',   weight: 6,  title: 'More than one canonical tag' },
+  orphanPage:       { severity: 'warning', weight: 5,  title: 'Pages nothing links to' },
+  deepPage:         { severity: 'warning', weight: 3,  title: 'Buried too many clicks deep' },
+  canonicalElsewhere:{ severity: 'warning', weight: 4, title: 'Canonical points at another page' },
+  noOpenGraph:      { severity: 'notice',  weight: 2,  title: 'No social preview tags' },
+  h1EqualsTitle:    { severity: 'notice',  weight: 1,  title: 'H1 identical to the title' }
 };
 
 // Why it matters, and what to actually do about it. `snippet` is markup that
@@ -131,6 +139,39 @@ const GUIDE = {
   largePage: {
     why: 'Heavy pages are slow on phones and on mobile data, which is where most local searches happen.',
     how: 'Move inline CSS and JavaScript into cached files, and strip unused page-builder markup.'
+  },
+  brokenExternal: {
+    why: 'A link out to a page that no longer exists is a dead end for the reader and a small signal that the page is not maintained.',
+    how: 'Point the link at the current address, find a replacement source, or remove the link.'
+  },
+  mixedContent: {
+    why: 'A secure page loading images or scripts over plain http gets flagged by browsers, and the insecure parts may be blocked outright.',
+    how: 'Change every http:// reference in the page source to https://.'
+  },
+  multipleCanonical: {
+    why: 'Two canonical tags contradict each other, so Google ignores both and decides for itself which URL is the real one.',
+    how: 'Keep exactly one canonical per page. A second one usually comes from a plugin duplicating what the theme already adds.'
+  },
+  orphanPage: {
+    why: 'A page in your sitemap that nothing links to is reachable only by a crawler that reads the sitemap. Visitors cannot find it, and it inherits no authority from the rest of the site.',
+    how: 'Link to it from a relevant page — a service page, the blog index, or the footer if nowhere else fits.'
+  },
+  deepPage: {
+    why: 'Pages four or more clicks from the homepage get crawled less often and are treated as less important.',
+    how: 'Add a link from a page nearer the top: a hub page, a category listing, or the main navigation.'
+  },
+  canonicalElsewhere: {
+    why: 'This page tells Google the real version is a different URL, so it will not rank on its own. Deliberate for duplicates, quietly fatal when it is a mistake.',
+    how: 'If this page should rank, point its canonical at itself.'
+  },
+  noOpenGraph: {
+    why: 'Without og:title and og:image, links shared to Facebook, LinkedIn or a text message render as a bare URL, which almost nobody clicks.',
+    how: 'Add og:title, og:description and og:image to the page head.',
+    snippet: '<meta property="og:title" content="Page title">\n<meta property="og:description" content="One-line summary">\n<meta property="og:image" content="https://example.com/share-image.jpg">'
+  },
+  h1EqualsTitle: {
+    why: 'Reusing the title verbatim as the H1 wastes a second chance to match how people phrase the search.',
+    how: 'Keep the title keyword-led for the search result, and make the H1 read naturally for the visitor.'
   }
 };
 
@@ -289,22 +330,28 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
   // A site asking for a slower crawl gets one.
   const delayMs = Math.max(opts.delayMs, robots.crawlDelayMs || 0);
 
-  const queue = [start.toString()];
-  const seen = new Set(queue);
+  const queue = [{ url: start.toString(), depth: 0 }];
+  const seen = new Set([start.toString()]);
   const pages = [];
   const linkSources = new Map();   // url → the page that linked to it
+  const inboundLinks = new Map();  // url → how many pages link to it
+  const externalLinks = new Map(); // external url → the page linking out
+  const sitemapUrls = new Set();
+  const depths = new Map([[start.toString(), 0]]);
 
   // Seed from the sitemap so orphaned pages are not missed.
   if (opts.maxPages > 25) {
     const fromSitemap = await fetchSitemapUrls(origin, robots.sitemaps, opts.maxPages);
     for (const url of fromSitemap) {
-      if (seen.size >= opts.maxPages) break;
+      sitemapUrls.add(url);
+      if (seen.size >= opts.maxPages) continue;
       if (seen.has(url)) continue;
       try {
         if (blockedByRobots(new URL(url).pathname, robots)) continue;
       } catch (e) { continue; }
       seen.add(url);
-      queue.push(url);
+      depths.set(url, 1);
+      queue.push({ url, depth: 1 });
     }
   }
 
@@ -340,8 +387,8 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     }
   }
 
-  async function visit(url) {
-    const page = { url, status: 0, ms: 0, redirectedTo: null, bytes: 0, issues: [] };
+  async function visit(url, depth) {
+    const page = { url, depth: depth || 0, status: 0, ms: 0, redirectedTo: null, bytes: 0, issues: [] };
     let began = 0;
     try {
       let res = null;
@@ -387,6 +434,27 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
         return tag ? firstMatch(tag[0], /href\s*=\s*["']([^"']+)["']/i) : null;
       })();
       page.robotsMeta = metaContent(html, 'robots') || '';
+      page.canonicalCount = (html.match(/<link[^>]+rel\s*=\s*["']canonical["']/gi) || []).length;
+      page.openGraph = Boolean(metaContent(html, 'og:title') && metaContent(html, 'og:image'));
+      // An https page pulling scripts, styles or images over http is mixed content.
+      page.mixedContent = [];
+      if (/^https:/i.test(url)) {
+        const insecure = [];
+        // src on img/script/iframe/video is always a load.
+        (html.match(/<(?:img|script|iframe|video|audio|source|embed)\b[^>]*\ssrc\s*=\s*["']http:\/\/[^"']+/gi) || [])
+          .forEach(m => insecure.push(m.slice(m.indexOf('http://'))));
+        // href on <link> is a load only for stylesheets, icons and preloads —
+        // an ordinary <a href="http://..."> is a link, not mixed content.
+        (html.match(/<link\b[^>]*>/gi) || []).forEach(tag => {
+          if (!/href\s*=\s*["']http:\/\//i.test(tag)) return;
+          if (!/rel\s*=\s*["'][^"']*(stylesheet|icon|preload|prefetch)/i.test(tag)) return;
+          const m = tag.match(/href\s*=\s*["'](http:\/\/[^"']+)/i);
+          if (m) insecure.push(m[1]);
+        });
+        page.mixedContent = insecure
+          .filter(u => !/^http:\/\/(schema\.org|www\.w3\.org|purl\.org|ogp\.me)/i.test(u))
+          .slice(0, 5);
+      }
       page.viewport = Boolean(metaContent(html, 'viewport'));
       page.lang = Boolean(html.match(/<html[^>]+lang\s*=/i));
       const h1s = html.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/gi) || [];
@@ -442,17 +510,27 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
 
       const links = extractLinks(html, url);
       page.internalLinks = 0;
+      page.outboundLinks = 0;
       for (const link of links) {
         let u;
         try { u = new URL(link); } catch (e) { continue; }
-        if (u.origin !== origin) continue;
+        if (u.origin !== origin) {
+          if (/^https?:$/.test(u.protocol)) {
+            page.outboundLinks++;
+            if (!externalLinks.has(link)) externalLinks.set(link, url);
+          }
+          continue;
+        }
         page.internalLinks++;
+        inboundLinks.set(link, (inboundLinks.get(link) || 0) + 1);
         if (!linkSources.has(link)) linkSources.set(link, url);
         if (seen.size >= opts.maxPages || seen.has(link)) continue;
         if (blockedByRobots(u.pathname, robots)) continue;
         if (/\.(pdf|jpg|jpeg|png|gif|webp|svg|zip|mp4|css|js|xml|ico)$/i.test(u.pathname)) continue;
         seen.add(link);
-        queue.push(link);
+        const childDepth = (page.depth || 0) + 1;
+        if (!depths.has(link)) depths.set(link, childDepth);
+        queue.push({ url: link, depth: childDepth });
       }
     } catch (err) {
       page.status = 0;
@@ -471,9 +549,9 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
       if (stopped && active === 0) return resolve();
       if (!stopped && !queue.length && active === 0) return resolve();
       while (!stopped && active < opts.concurrency && queue.length && pages.length + active < opts.maxPages) {
-        const url = queue.shift();
+        const job = queue.shift();
         active++;
-        visit(url).then(page => {
+        visit(job.url, job.depth).then(page => {
           pages.push(page);
           if (onProgress) {
             onProgress(pages.length, Math.min(opts.maxPages, pages.length + active + queue.length));
@@ -485,15 +563,42 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     pump();
   });
 
+  // Outbound links, sampled and checked at the same polite rate. A dead link
+  // out of the site is still a dead end for the reader.
+  const external = [];
+  if (opts.checkExternal !== false && externalLinks.size) {
+    const sample = [...externalLinks.entries()].slice(0, opts.maxExternal || 40);
+    for (const [link, from] of sample) {
+      if (shouldStop && shouldStop()) break;
+      await throttle();
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        let res;
+        try {
+          res = await fetch(link, { method: 'HEAD', headers: { 'User-Agent': UA }, redirect: 'follow', signal: controller.signal });
+          // Plenty of servers refuse HEAD; fall back before calling it broken.
+          if (res.status === 405 || res.status === 501) {
+            res = await fetch(link, { headers: { 'User-Agent': UA }, redirect: 'follow', signal: controller.signal });
+          }
+        } finally { clearTimeout(timer); }
+        external.push({ url: link, from, status: res.status });
+      } catch (err) {
+        external.push({ url: link, from, status: 0, error: err.name === 'AbortError' ? 'Timed out' : (err.message || 'unreachable') });
+      }
+    }
+  }
+
   return {
-    pages, robots, origin, linkSources,
+    pages, robots, origin, linkSources, inboundLinks, sitemapUrls, external,
+    externalTotal: externalLinks.size,
     delayMs, finalDelayMs: currentDelay, throttleHits,
     sitemapSeeded: seen.size - 1
   };
 }
 
 /* ── Turning pages into findings ────────────────────────────────── */
-function analyse({ pages, robots, origin, linkSources, throttleHits = 0 }) {
+function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(), sitemapUrls = new Set(), external = [], externalTotal = 0, throttleHits = 0 }) {
   const found = {};
   const add = (key, url, detail, fix, current) => {
     if (!found[key]) found[key] = [];
@@ -617,9 +722,65 @@ function analyse({ pages, robots, origin, linkSources, throttleHits = 0 }) {
         `This page carries robots="${p.robotsMeta}". If it is meant to rank, remove noindex from that tag.`,
         p.robotsMeta);
     }
+    if (p.canonicalCount > 1) {
+      add('multipleCanonical', p.url, `${p.canonicalCount} canonical tags`,
+        `${p.canonicalCount} canonical tags on one page contradict each other, so Google ignores both. Usually a plugin duplicating the theme's tag — keep one.`);
+    }
+    if (p.canonical) {
+      const canonical = String(p.canonical).replace(/\/$/, '');
+      const self = p.url.replace(/\/$/, '');
+      if (canonical && canonical !== self && /^https?:/i.test(canonical)) {
+        add('canonicalElsewhere', p.url, `canonical → ${canonical}`,
+          `This page's canonical points at ${canonical}, so it will not rank on its own. If that is intended it is fine; if not, point the canonical at this URL.`,
+          canonical);
+      }
+    }
+    if (p.mixedContent && p.mixedContent.length) {
+      add('mixedContent', p.url, `${p.mixedContent.length} insecure reference${p.mixedContent.length > 1 ? 's' : ''}`,
+        `Loads over plain http: ${p.mixedContent.slice(0, 3).join(', ')}. Change each to https:// — browsers flag or block these.`);
+    }
+    if (p.openGraph === false) {
+      add('noOpenGraph', p.url, 'no og:title or og:image',
+        'Shared to Facebook, LinkedIn or a text message this renders as a bare URL. Add og:title, og:description and og:image.');
+    }
+    if (p.h1 && p.title && p.h1.trim().toLowerCase() === p.title.trim().toLowerCase()) {
+      add('h1EqualsTitle', p.url, 'H1 repeats the title exactly',
+        `Both read "${p.h1.slice(0, 60)}". Keep the title keyword-led for search results and rewrite the H1 to read naturally for the visitor.`,
+        p.h1.slice(0, 90));
+    }
+    if ((p.depth || 0) >= 4) {
+      add('deepPage', p.url, `${p.depth} clicks from the homepage`,
+        `${path} sits ${p.depth} clicks deep. Link to it from a hub page or the navigation so it is no more than three from the homepage.`);
+    }
+
     if (p.words < 200) {
       add('thinContent', p.url, `${p.words} words`,
         `${p.words} words. Aim for 600+ if this page is meant to rank — add process, timelines, costs and FAQs.`);
+    }
+  }
+
+  // A sitemap URL that nothing links to is reachable only by crawlers.
+  const crawledOk = new Set(pages.filter(p => p.status >= 200 && p.status < 400).map(p => p.url));
+  for (const url of sitemapUrls) {
+    if (!crawledOk.has(url)) continue;
+    if ((inboundLinks.get(url) || 0) > 0) continue;
+    if (url.replace(/\/$/, '') === origin) continue;   // the homepage is not an orphan
+    const path = url.replace(/^https?:\/\/[^/]+/, '') || '/';
+    add('orphanPage', url, 'in the sitemap, no internal links',
+      `Nothing on the site links to ${path}, so visitors cannot reach it by browsing and it inherits no authority. Link to it from a related page.`);
+  }
+
+  for (const link of external) {
+    // A 401, 403 or 429 from a responding server is almost always bot
+    // protection refusing this crawler, not a link that is actually dead.
+    // Reporting those as broken sends people to fix working links.
+    if ([401, 403, 405, 429].indexOf(link.status) > -1) continue;
+    if (link.status === 0 || link.status >= 400) {
+      const fromPath = link.from.replace(/^https?:\/\/[^/]+/, '') || '/';
+      add('brokenExternal', link.url,
+        link.error || `HTTP ${link.status}`,
+        `${fromPath} links out to this address, which ${link.error ? 'could not be reached (' + link.error + ')' : 'returns ' + link.status}. ` +
+        'Update the link, find a live replacement, or remove it.');
     }
   }
 
@@ -677,6 +838,8 @@ function analyse({ pages, robots, origin, linkSources, throttleHits = 0 }) {
     throttleHits,
     crawled: pages.length,
     htmlPages,
+    externalChecked: external.length,
+    externalTotal,
     origin,
     robots: { found: robots.found, sitemaps: robots.sitemaps, disallowed: robots.disallow.length },
     pages: pages.map(p => ({

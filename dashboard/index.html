@@ -663,7 +663,7 @@
   .issue > summary {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 2px; cursor: pointer; list-style: none;
-    font-size: 13px;
+    font-size: 13px; flex-wrap: wrap;
   }
   .issue > summary::-webkit-details-marker { display: none; }
   .issue > summary::before {
@@ -690,6 +690,27 @@
   }
   .issue-url a { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .issue-url .detail { color: var(--ink-3); flex: none; font-variant-numeric: tabular-nums; }
+  .plan { border-bottom: 1px solid var(--hairline); padding-bottom: 12px; margin-bottom: 6px; }
+  .plan-list { counter-reset: plan; list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 9px; }
+  .plan-list li {
+    counter-increment: plan;
+    display: grid; grid-template-columns: 20px minmax(0,1fr) auto;
+    gap: 9px; align-items: baseline; font-size: 13px;
+  }
+  .plan-list li::before {
+    content: counter(plan);
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center;
+  }
+  .plan-count { color: var(--ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .plan-how { grid-column: 2 / -1; font-size: 12px; color: var(--ink-2); max-width: 78ch; }
+  .issue-preview {
+    flex-basis: 100%; padding-left: 24px;
+    font-size: 12px; color: var(--ink-2); max-width: 78ch;
+  }
+  .issue[open] .issue-preview { display: none; }
   .issue-how { font-size: 12.5px; color: var(--ink); margin: 0 0 10px; max-width: 74ch; }
   .issue-how strong { color: var(--accent-deep); }
   .issue-code {
@@ -3439,8 +3460,41 @@
   }
 
 
-  function renderIssueList(host, issues, emptyMsg) {
+  // The findings are already ordered by impact; state that order plainly so the
+  // first move is obvious without reading every entry.
+  function renderActionPlan(host, issues) {
     host.innerHTML = '';
+    if (!issues.length) return;
+    var top = issues.slice(0, 5);
+    var wrap = document.createElement('div');
+    wrap.className = 'plan';
+    var head = document.createElement('div');
+    head.className = 'eyebrow';
+    head.textContent = 'Do these first';
+    wrap.appendChild(head);
+    var ol = document.createElement('ol');
+    ol.className = 'plan-list';
+    top.forEach(function (issue) {
+      var li = document.createElement('li');
+      var strong = document.createElement('strong');
+      strong.textContent = issue.title;
+      li.appendChild(strong);
+      var count = document.createElement('span');
+      count.className = 'plan-count';
+      count.textContent = issue.count + (issue.count === 1 ? ' page' : ' pages');
+      li.appendChild(count);
+      var how = document.createElement('div');
+      how.className = 'plan-how';
+      how.textContent = issue.how || '';
+      li.appendChild(how);
+      ol.appendChild(li);
+    });
+    wrap.appendChild(ol);
+    host.appendChild(wrap);
+  }
+
+  function renderIssueList(host, issues, emptyMsg, append) {
+    if (!append) host.innerHTML = '';
     if (!issues.length) {
       host.innerHTML = '<p style="margin:0;font-size:13px;color:var(--good-text)"></p>';
       host.firstChild.textContent = emptyMsg;
@@ -3449,11 +3503,19 @@
     issues.forEach(function (issue, idx) {
       var d = document.createElement('details');
       d.className = 'issue';
+      if (idx === 0) d.open = true;
       var sum = document.createElement('summary');
       sum.innerHTML = '<span class="sev sev-' + issue.severity + '">' + issue.severity + '</span>' +
         '<span class="grow"></span><span class="n"></span>';
       sum.children[1].textContent = issue.title;
       sum.children[2].textContent = issue.count + (issue.count === 1 ? ' page' : ' pages');
+      // Inside the summary, so the fix stays legible while the entry is closed.
+      if (issue.how) {
+        var preview = document.createElement('span');
+        preview.className = 'issue-preview';
+        preview.textContent = issue.how;
+        sum.appendChild(preview);
+      }
       // The list is already ordered by impact, so the badge marks the single
       // thing worth doing first — only meaningful when it is an error.
       if (idx === 0 && issue.severity === 'error') {
@@ -3537,6 +3599,7 @@
       }
       body.appendChild(list);
       d.appendChild(body);
+
       host.appendChild(d);
     });
   }
@@ -3622,7 +3685,8 @@
       (r.robots.found ? ' · robots.txt honoured' : ' · no robots.txt');
     auditSeverityBar(r.counts);
 
-    renderIssueList($('auditIssues'), r.issues, 'No problems found across ' + r.crawled + ' pages.');
+    renderActionPlan($('auditIssues'), r.issues);
+    renderIssueList($('auditIssues'), r.issues, 'No problems found across ' + r.crawled + ' pages.', true);
 
     $('auditPageCount').textContent = r.pages.length + ' pages';
     renderTable($('auditPages'), [
