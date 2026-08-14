@@ -43,7 +43,14 @@ const CHECKS = {
   noExtractable:   { severity: 'warning', weight: 4,  title: 'Nothing an assistant can lift cleanly' },
   thinForAi:       { severity: 'notice',  weight: 3,  title: 'Too short to answer a question fully' },
   noServiceArea:   { severity: 'notice',  weight: 3,  title: 'Service area not declared in schema' },
-  noSpeakable:     { severity: 'notice',  weight: 2,  title: 'No speakable markup' }
+  noSpeakable:     { severity: 'notice',  weight: 2,  title: 'No speakable markup' },
+  noDirectAnswer:  { severity: 'error',   weight: 10, title: 'Page does not answer its own headline' },
+  duplicateOpening:{ severity: 'error',   weight: 9,  title: 'Pages open with the same words' },
+  noContactPoint:  { severity: 'error',   weight: 9,  title: 'No phone or contact point in schema' },
+  noFigures:       { severity: 'warning', weight: 6,  title: 'No concrete figures to quote' },
+  noAuthorship:    { severity: 'warning', weight: 5,  title: 'Nothing says who stands behind the page' },
+  noBreadcrumbs:   { severity: 'notice',  weight: 3,  title: 'No BreadcrumbList markup' },
+  processNoHowTo:  { severity: 'warning', weight: 5,  title: 'Step-by-step content without HowTo schema' }
 };
 
 const GUIDE = {
@@ -98,6 +105,34 @@ const GUIDE = {
   noSpeakable: {
     why: 'speakable marks the sentences best suited to being read aloud, which voice assistants use when choosing what to say.',
     how: 'Add a speakable property pointing at your summary paragraphs.'
+  },
+  noDirectAnswer: {
+    why: 'An assistant reads the top of the page and takes the first passage that answers the question. Pages that open with a slogan or a call to action give it nothing to lift, so it moves on to a competitor who answered in their first sentence.',
+    how: 'Open every page with one plain sentence that answers its own headline, then sell underneath. "We buy houses in San Carlos for cash and can close in seven days" beats "Sell your home the easy way!" every time.'
+  },
+  duplicateOpening: {
+    why: 'When many pages start with the same paragraph, an assistant treats them as one source and keeps a single page — usually not the one you want. This is what quietly limits city and situation pages built from a template.',
+    how: 'Give each page its own opening two sentences, naming the specific city or situation and something true only of it — a local timeline, a neighbourhood, a typical price.'
+  },
+  noContactPoint: {
+    why: 'An assistant recommending a business is asked "how do I reach them?" next. If the phone number lives only in a header image or plain text, it cannot pass it on with any confidence.',
+    how: 'Add telephone, email and a ContactPoint node to the LocalBusiness schema so the details are machine-readable.'
+  },
+  noFigures: {
+    why: 'Assistants quote specifics. "Closes in as little as 7 days, no fees, no repairs" is quotable; "fast, easy and hassle-free" is not, and gets paraphrased away to nothing.',
+    how: 'Put real numbers on the page — days to close, percentage of market value, typical fees avoided, houses bought — and keep them current.'
+  },
+  noAuthorship: {
+    why: 'Assistants weigh who is behind a claim. A page with no named author or publisher is a weaker source than the same page attributed to a real business with a real person.',
+    how: 'Add author and publisher to the page schema, and put a short "written by" line with a role on the page.'
+  },
+  noBreadcrumbs: {
+    why: 'BreadcrumbList tells an assistant where a page sits — that a city page belongs under service areas rather than floating alone — which helps it pick the right page to cite.',
+    how: 'Add BreadcrumbList JSON-LD reflecting the path a visitor took to reach the page.'
+  },
+  processNoHowTo: {
+    why: 'Numbered processes are the exact shape assistants use to answer "how does it work?", but only HowTo markup tells them these steps belong together in order.',
+    how: 'Wrap the existing numbered steps in HowTo JSON-LD, with a name and one HowToStep per step. The copy does not change.'
   }
 };
 
@@ -196,6 +231,13 @@ function buildFaqPage(questions, url) {
 }
 
 /* ── Analysis ────────────────────────────────────────────────────── */
+// Words that carry no topic, so echoing them back proves nothing about
+// whether an opening sentence actually answered the headline.
+const STOPWORDS = ['your', 'with', 'that', 'this', 'from', 'have', 'will', 'more', 'when',
+  'what', 'which', 'their', 'there', 'about', 'into', 'been', 'they', 'them', 'than',
+  'then', 'here', 'just', 'like', 'over', 'also', 'best', 'take', 'make', 'need', 'want',
+  'fast', 'easy', 'today', 'help', 'free', 'home', 'house', 'houses', 'homes'];
+
 function analyse({ pages, origin }, access, profile) {
   const found = {};
   const add = (key, url, detail, fix, current) => {
@@ -290,6 +332,107 @@ function analyse({ pages, origin }, access, profile) {
     }
   }
 
+  // 3b. Does the page answer its own headline in its first breath?
+  //     An assistant lifts the first passage that answers the question; a page
+  //     opening on a slogan hands it nothing.
+  for (const p of html) {
+    const path = p.url.replace(/^https?:\/\/[^/]+/, '') || '/';
+    // The text under the headline, not the top of the document: page builders
+    // put sticky bars and phone banners before the content.
+    const opening = ((p.afterH1 || p.firstText) || '').trim();
+    if (!opening || p.words < 120) continue;   // too little text to judge fairly
+    const firstSentence = opening.split(/(?<=[.!?])\s/)[0] || opening.slice(0, 160);
+    // Content words from the headline that a real answer would echo back.
+    const topic = (p.h1 || p.title || '')
+      .toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+      .filter(w => w.length > 3 && STOPWORDS.indexOf(w) === -1);
+    if (!topic.length) continue;
+    const lead = firstSentence.toLowerCase();
+    const echoed = topic.filter(w => lead.indexOf(w) > -1).length;
+    // A sentence that repeats none of the headline's own words, or that is a
+    // bare call to action, is not an answer to anything.
+    const isCta = /^(get|call|contact|request|fill|click|start|sell|need|want|looking|tired|ready)\b/i.test(firstSentence) &&
+      firstSentence.length < 120;
+    // A long opening with no literal overlap is usually still an answer, just
+    // phrased differently — only a short slogan or a call to action is not.
+    if (isCta || (echoed === 0 && firstSentence.length < 90)) {
+      add('noDirectAnswer', p.url,
+        isCta ? 'opens with a call to action' : 'opens with a slogan, not an answer',
+        `${path} is headed "${(p.h1 || p.title || '').slice(0, 70)}" but opens with "${firstSentence.slice(0, 90)}". ` +
+        'Lead with one sentence that answers that headline plainly, then sell underneath.',
+        firstSentence.slice(0, 110));
+    }
+
+    if (!p.figures) {
+      add('noFigures', p.url, 'no numbers in the copy',
+        `${path} makes its case in adjectives. Add the figures a seller wants — days to close, ` +
+        'percentage of market value, fees avoided — so there is something specific to quote.');
+    }
+
+    const props = p.schemaProps || [];
+    if (p.schemaTypes.length && props.indexOf('author') === -1 && props.indexOf('publisher') === -1) {
+      add('noAuthorship', p.url, 'no author or publisher in the schema',
+        `${path} has structured data but nothing saying who stands behind it. Add author and publisher to the schema.`);
+    }
+
+    // Numbered steps in the copy, but nothing marking them as a procedure.
+    const looksProcess = /how-(it-)?works|process|steps|guide|selling|sell-your/i.test(p.url) ||
+      p.headings.some(h => /^\s*(step\s*\d|\d[.)]\s)/i.test(h));
+    if (looksProcess && p.lists && !p.schemaTypes.includes('HowTo')) {
+      add('processNoHowTo', p.url, `${p.lists} list${p.lists > 1 ? 's' : ''}, no HowTo markup`,
+        `${path} lays out a process but nothing marks it as one. Wrap the existing steps in HowTo schema — the copy does not change.`,
+        p.schemaTypes.join(', ') || 'no schema');
+    }
+  }
+
+  // Site-wide identity gaps, judged once rather than per page.
+  const allProps = new Set();
+  html.forEach(p => (p.schemaProps || []).forEach(k => allProps.add(k)));
+  if (hasOrg && !allProps.has('telephone') && !allProps.has('contactPoint')) {
+    add('noContactPoint', origin + '/', 'schema carries no telephone or contactPoint',
+      'Your business schema has no machine-readable way to reach you. Add telephone, email and a ContactPoint node ' +
+      'to the LocalBusiness block so an assistant can pass the number on.');
+  }
+  if (html.length > 3 && !html.some(p => p.schemaTypes.includes('BreadcrumbList'))) {
+    add('noBreadcrumbs', origin + '/', 'not present on any page checked',
+      'No page declares where it sits in the site. Add BreadcrumbList schema so an assistant can tell a city page ' +
+      'from a service page and cite the right one.');
+  }
+
+  // Template-built pages that open identically read as one source, and the
+  // assistant keeps only one of them.
+  const openings = new Map();
+  for (const p of html) {
+    // Compare what follows the headline, never the top of the document: every
+    // page shares the same sticky bar and phone banner by design, and matching
+    // on those would report the entire site as duplicate content.
+    if (!p.afterH1) continue;
+    const key = p.afterH1.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 90);
+    if (key.length < 40) continue;   // too short to be a meaningful match
+    if (!openings.has(key)) openings.set(key, []);
+    openings.get(key).push(p);
+  }
+  for (const [, group] of openings) {
+    if (group.length < 2) continue;
+    const others = group.length - 1;
+    const plural = group.length > 2 ? 's' : '';
+    // A shared opening that is a lead form is a different problem with a
+    // different fix: the copy is not duplicated, it is missing.
+    const isForm = /name\s*\*|phone\s*\*|full address|email\s*\*|submit/i.test(group[0].afterH1);
+    group.slice(0, 20).forEach(p => {
+      const path = p.url.replace(/^https?:\/\/[^/]+/, '') || '/';
+      add('duplicateOpening', p.url,
+        isForm ? `opens with the same form as ${others} other page${plural}` : `same opening as ${others} other page${plural}`,
+        isForm
+          ? `The first thing under the headline on ${path} is your lead form — identical on ${group.length} pages. ` +
+            'An assistant asked about this situation finds a form where the answer should be. Put two or three sentences ' +
+            'above the form that answer this page\'s own question, then keep the form exactly where it is.'
+          : `${path} starts with the same words as ${others} other page${plural}, so an assistant treats them as one source and keeps just one. ` +
+            'Rewrite the first two sentences to name this page\'s own city or situation and something true only of it.',
+        p.afterH1.slice(0, 110));
+    });
+  }
+
   // Question shape is a whole-site property, so judge it once.
   const questionShare = headingTotal ? questionTotal / headingTotal : 0;
   if (headingTotal && questionShare < 0.25) {
@@ -330,7 +473,10 @@ function analyse({ pages, origin }, access, profile) {
   const pageCount = html.length || 1;
   let deductions = 0;
   for (const issue of issues) {
-    const siteWide = ['botBlocked', 'noOrgSchema', 'noSameAs', 'noLlmsTxt', 'noSpeakable', 'noServiceArea'];
+    // Findings reported once for the whole site, not per page — their weight
+    // must not be scaled down by a page count they were never counted against.
+    const siteWide = ['botBlocked', 'noOrgSchema', 'noSameAs', 'noLlmsTxt', 'noSpeakable',
+      'noServiceArea', 'noContactPoint', 'noBreadcrumbs'];
     const share = siteWide.indexOf(issue.key) > -1 ? 1 : Math.min(1, issue.count / pageCount);
     deductions += CHECKS[issue.key].weight * share;
   }

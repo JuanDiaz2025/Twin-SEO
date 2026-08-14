@@ -540,14 +540,36 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
         return m ? m[1].split('/').pop().split('?')[0] : '(no src)';
       });
 
-      // Body text minus the chrome, for suggesting a description.
-      const body = html.replace(/<(header|nav|footer|aside)[\s\S]*?<\/\1>/gi, ' ');
+      // Body text minus the chrome. Cut at <body> rather than matching
+      // </head> — plenty of real pages (WordPress among them) never close the
+      // head, and without this the <title> leads every extract. Comments go
+      // too: the "you are using an outdated browser" banner lives inside a
+      // conditional comment and would otherwise read as the opening sentence.
+      const bodyStart = html.search(/<body\b/i);
+      const body = (bodyStart > -1 ? html.slice(bodyStart) : html)
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+        .replace(/<(header|nav|footer|aside)[\s\S]*?<\/\1>/gi, ' ');
+      const bodyText = stripTags(body);
       page.words = stripTags(html).split(' ').filter(Boolean).length;
-      page.firstText = stripTags(body).slice(0, 400);
+      page.firstText = bodyText.slice(0, 400);
+
+      // What follows the H1 — the page's actual opening. Page builders wrap
+      // their sticky bars and offer banners in plain divs, so "the first text
+      // in the body" is usually chrome; the first text after the headline is
+      // the passage a reader (or an assistant) treats as the answer.
+      const afterH1 = body.split(/<\/h1\s*>/i)[1];
+      page.afterH1 = afterH1 ? stripTags(afterH1).slice(0, 400) : '';
+
+      // Figures an assistant can quote — money, percentages, and counted
+      // things like "7 days" or "3 offers". Bare years and phone numbers are
+      // not facts about the offer, so they do not count.
+      page.figures = (bodyText.match(/(\$\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d{1,3}\s?(?:day|days|week|weeks|month|months|hour|hours|year|years|home|homes|house|houses|client|clients|offer|offers)\b)/gi) || []).length;
 
       // ── Signals that decide whether an AI assistant can quote this page ──
       page.schemaTypes = [];
       page.schemaBroken = 0;
+      page.schemaProps = [];
       page.sameAs = [];
       page.dateModified = '';
       const blocks = html.match(/<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
@@ -561,6 +583,14 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
             [].concat(node['@type'] || []).forEach(t => { if (t) page.schemaTypes.push(String(t)); });
             if (node.sameAs) page.sameAs = page.sameAs.concat([].concat(node.sameAs));
             if (node.dateModified && !page.dateModified) page.dateModified = String(node.dateModified);
+            // Which properties the markup actually carries. An Organization node
+            // with no telephone and no author is a very different thing from one
+            // that has both, and only the property names say which.
+            Object.keys(node).forEach(k => {
+              if (k[0] !== '@' && node[k] != null && node[k] !== '' && page.schemaProps.indexOf(k) === -1) {
+                page.schemaProps.push(k);
+              }
+            });
           }
         } catch (e) { page.schemaBroken++; }
       }
