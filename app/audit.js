@@ -44,7 +44,9 @@ const CHECKS = {
   deepPage:         { severity: 'warning', weight: 3,  title: 'Buried too many clicks deep' },
   canonicalElsewhere:{ severity: 'warning', weight: 4, title: 'Canonical points at another page' },
   noOpenGraph:      { severity: 'notice',  weight: 2,  title: 'No social preview tags' },
-  h1EqualsTitle:    { severity: 'notice',  weight: 1,  title: 'H1 identical to the title' }
+  h1EqualsTitle:    { severity: 'notice',  weight: 1,  title: 'H1 identical to the title' },
+  nonCanonicalLink: { severity: 'warning', weight: 3,  title: 'Internal links use the wrong hostname' },
+  flakyUnderLoad:   { severity: 'warning', weight: 3,  title: 'Pages failed under crawl load, then recovered' }
 };
 
 // Why it matters, and what to actually do about it. `snippet` is markup that
@@ -169,6 +171,18 @@ const GUIDE = {
     how: 'Add og:title, og:description and og:image to the page head.',
     snippet: '<meta property="og:title" content="Page title">\n<meta property="og:description" content="One-line summary">\n<meta property="og:image" content="https://example.com/share-image.jpg">'
   },
+  flakyUnderLoad: {
+    why: 'These pages errored while being crawled but answered normally a moment later, so they are not broken — the server is shedding requests when several arrive close together. Googlebot crawls faster than this audit did, so it will be seeing the same failures.',
+    how: 'Look at hosting limits, PHP worker count and any rate limiting or bot protection in front of the site. Caching pages so repeat requests never reach PHP is usually the cheapest fix.'
+  },
+  flakyUnderLoad: {
+    why: 'These pages errored while being crawled but answered normally a moment later, so they are not broken — the server is shedding requests when several arrive close together. Googlebot crawls faster than this audit did, so it is seeing the same failures.',
+    how: 'Look at hosting limits, PHP worker count, and any rate limiting or bot protection in front of the site. Caching pages so repeat requests never reach PHP is usually the cheapest fix.'
+  },
+  nonCanonicalLink: {
+    why: 'These links point at the other version of your own domain (the www twin, or http://), so every click costs a redirect before the page starts loading, and the link equity passes through an extra hop.',
+    how: 'Edit the href so it matches the hostname the site actually serves. In WordPress this is usually a stale Site Address setting or hard-coded links in the theme.'
+  },
   h1EqualsTitle: {
     why: 'Reusing the title verbatim as the H1 wastes a second chance to match how people phrase the search.',
     how: 'Keep the title keyword-led for the search result, and make the H1 read naturally for the visitor.'
@@ -176,6 +190,16 @@ const GUIDE = {
 };
 
 // Trim to a whole word at or under a limit.
+// Record a linking page against a target URL. Capped: a site-wide dead link
+// would otherwise collect thousands of identical entries, and nobody needs
+// more than a couple of dozen examples to find the template at fault.
+const MAX_SOURCES = 25;
+function noteSource(map, target, from) {
+  let list = map.get(target);
+  if (!list) { list = []; map.set(target, list); }
+  if (list.length < MAX_SOURCES && list.indexOf(from) === -1) list.push(from);
+}
+
 function trimTo(text, limit) {
   if (text.length <= limit) return text;
   const cut = text.slice(0, limit);
@@ -315,7 +339,36 @@ function blockedByRobots(pathname, rules) {
 /* ── The crawl ──────────────────────────────────────────────────── */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function crawl(startUrl, options, onProgress, shouldStop) {
+// www.example.com and example.com are one site to every human looking at the
+// audit, whichever one was typed into the box. The port stays part of the
+// identity: two services on one host are two different sites.
+const bareHost = url => {
+  const u = typeof url === 'string' ? { hostname: url, port: '' } : url;
+  return u.hostname.replace(/^www\./i, '').toLowerCase() + (u.port ? ':' + u.port : '');
+};
+
+// Where does the entry URL actually end up? Only a redirect that stays on the
+// same site is followed: a link shortener or a hijacked domain landing
+// somewhere else must not silently redirect the audit onto another site.
+async function resolveEntry(url, timeoutMs) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs || 20000, 15000));
+    let res;
+    try {
+      res = await fetch(url, { headers: { 'User-Agent': UA }, redirect: 'follow', signal: controller.signal });
+    } finally { clearTimeout(timer); }
+    if (!res.url || res.url === url) return null;
+    const from = new URL(url);
+    const to = new URL(res.url);
+    if (bareHost(to) !== bareHost(from)) return null;
+    return to.origin + '/';
+  } catch (e) {
+    return null;   // unreachable entry is the crawl's problem to report, not this helper's
+  }
+}
+
+async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
   const opts = Object.assign({
     maxPages: 40,
     concurrency: 2,
@@ -323,8 +376,15 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     timeoutMs: 20000,
     retries: 2
   }, options);
-  const start = new URL(startUrl);
+  let start = new URL(startUrl);
+  // Most sites 301 between the apex and www. Keeping the typed origin after
+  // such a redirect makes every internal link look like it points at another
+  // site: the crawl stops after one page and the whole site gets reported as
+  // broken outbound links. Follow the entry redirect and adopt where it lands.
+  const landed = await resolveEntry(start.toString(), opts.timeoutMs);
+  if (landed) start = new URL(landed);
   const origin = start.origin;
+  const siteHost = bareHost(start);
 
   const robots = await fetchRobots(origin);
   // A site asking for a slower crawl gets one.
@@ -333,9 +393,13 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
   const queue = [{ url: start.toString(), depth: 0 }];
   const seen = new Set([start.toString()]);
   const pages = [];
-  const linkSources = new Map();   // url → the page that linked to it
+  // Every page that links to a URL, not just the first one found: a dead link
+  // in a footer or nav sits on every page, and reporting a single location
+  // gets one instance fixed while the rest stay broken.
+  const linkSources = new Map();   // url → [pages that link to it]
   const inboundLinks = new Map();  // url → how many pages link to it
-  const externalLinks = new Map(); // external url → the page linking out
+  const externalLinks = new Map(); // external url → [pages linking out]
+  const nonCanonicalLinks = new Map(); // canonical url → [pages linking to its www/http twin]
   const sitemapUrls = new Set();
   const depths = new Map([[start.toString(), 0]]);
 
@@ -360,6 +424,11 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
   let currentDelay = delayMs;
   let throttleHits = 0;
   async function throttle() {
+    // Hold here while paused: the queue keeps its place and nothing in flight
+    // is thrown away, so resuming continues rather than restarting.
+    while (shouldPause && shouldPause() && !(shouldStop && shouldStop())) {
+      await sleep(250);
+    }
     const now = Date.now();
     const wait = Math.max(0, nextSlot - now);
     nextSlot = Math.max(now, nextSlot) + currentDelay;
@@ -514,23 +583,32 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
       for (const link of links) {
         let u;
         try { u = new URL(link); } catch (e) { continue; }
-        if (u.origin !== origin) {
-          if (/^https?:$/.test(u.protocol)) {
-            page.outboundLinks++;
-            if (!externalLinks.has(link)) externalLinks.set(link, url);
-          }
+        if (!/^https?:$/.test(u.protocol)) continue;
+        if (bareHost(u) !== siteHost) {
+          page.outboundLinks++;
+          noteSource(externalLinks, link, url);
           continue;
         }
+        // Same site reached by its other hostname (the www twin) or over
+        // http:// — one redirect hop for every visitor who clicks it. Fold it
+        // onto the canonical origin so the page is crawled once and its
+        // findings land against one URL instead of two.
+        let target = link;
+        if (u.origin !== origin) {
+          target = origin + u.pathname + u.search;
+          try { u = new URL(target); } catch (e) { continue; }
+          noteSource(nonCanonicalLinks, target, url);
+        }
         page.internalLinks++;
-        inboundLinks.set(link, (inboundLinks.get(link) || 0) + 1);
-        if (!linkSources.has(link)) linkSources.set(link, url);
-        if (seen.size >= opts.maxPages || seen.has(link)) continue;
+        inboundLinks.set(target, (inboundLinks.get(target) || 0) + 1);
+        noteSource(linkSources, target, url);
+        if (seen.size >= opts.maxPages || seen.has(target)) continue;
         if (blockedByRobots(u.pathname, robots)) continue;
         if (/\.(pdf|jpg|jpeg|png|gif|webp|svg|zip|mp4|css|js|xml|ico)$/i.test(u.pathname)) continue;
-        seen.add(link);
+        seen.add(target);
         const childDepth = (page.depth || 0) + 1;
-        if (!depths.has(link)) depths.set(link, childDepth);
-        queue.push({ url: link, depth: childDepth });
+        if (!depths.has(target)) depths.set(target, childDepth);
+        queue.push({ url: target, depth: childDepth });
       }
     } catch (err) {
       page.status = 0;
@@ -563,12 +641,36 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
     pump();
   });
 
+  // Second look at everything that failed with a server error or no response.
+  // Shared hosting sheds requests under a crawl, and a page that 503s while
+  // being crawled but answers fine a moment later is not broken — reporting it
+  // as broken sends someone hunting a bug that does not exist. Sequential,
+  // unhurried, and only over the handful of URLs that actually failed.
+  const flaky = [];
+  const suspects = pages.filter(p => p.status === 0 || p.status >= 500).slice(0, 25);
+  if (suspects.length && !(shouldStop && shouldStop())) {
+    await sleep(3000);
+    for (const p of suspects) {
+      if (shouldStop && shouldStop()) break;
+      await sleep(1200);
+      // visit() again rather than a bare fetch: a page that only answers on
+      // the second look still needs its title, headings and schema read, and
+      // this is the one code path that extracts all of them.
+      const retry = await visit(p.url, p.depth);
+      if (retry.status === 0 || retry.status >= 400) continue;
+      flaky.push({ url: p.url, failedAs: p.status === 0 ? (p.error || 'no response') : String(p.status) });
+      retry.recheckedOk = true;
+      pages[pages.indexOf(p)] = retry;
+    }
+  }
+
   // Outbound links, sampled and checked at the same polite rate. A dead link
   // out of the site is still a dead end for the reader.
   const external = [];
   if (opts.checkExternal !== false && externalLinks.size) {
     const sample = [...externalLinks.entries()].slice(0, opts.maxExternal || 40);
-    for (const [link, from] of sample) {
+    for (const [link, froms] of sample) {
+      const from = froms[0];
       if (shouldStop && shouldStop()) break;
       await throttle();
       try {
@@ -582,15 +684,15 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
             res = await fetch(link, { headers: { 'User-Agent': UA }, redirect: 'follow', signal: controller.signal });
           }
         } finally { clearTimeout(timer); }
-        external.push({ url: link, from, status: res.status });
+        external.push({ url: link, from, sources: froms, status: res.status });
       } catch (err) {
-        external.push({ url: link, from, status: 0, error: err.name === 'AbortError' ? 'Timed out' : (err.message || 'unreachable') });
+        external.push({ url: link, from, sources: froms, status: 0, error: err.name === 'AbortError' ? 'Timed out' : (err.message || 'unreachable') });
       }
     }
   }
 
   return {
-    pages, robots, origin, linkSources, inboundLinks, sitemapUrls, external,
+    pages, robots, origin, linkSources, inboundLinks, nonCanonicalLinks, sitemapUrls, external, flaky,
     externalTotal: externalLinks.size,
     delayMs, finalDelayMs: currentDelay, throttleHits,
     sitemapSeeded: seen.size - 1
@@ -598,7 +700,7 @@ async function crawl(startUrl, options, onProgress, shouldStop) {
 }
 
 /* ── Turning pages into findings ────────────────────────────────── */
-function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(), sitemapUrls = new Set(), external = [], externalTotal = 0, throttleHits = 0 }) {
+function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(), nonCanonicalLinks = new Map(), sitemapUrls = new Set(), external = [], externalTotal = 0, throttleHits = 0, flaky = [] }) {
   const found = {};
   const add = (key, url, detail, fix, current) => {
     if (!found[key]) found[key] = [];
@@ -621,16 +723,19 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
       continue;
     }
     if (p.status >= 400) {
-      const from = linkSources.get(p.url);
+      const sources = linkSources.get(p.url) || [];
+      const from = sources[0];
       const fromPath = from ? from.replace(/^https?:\/\/[^/]+/, '') || '/' : '';
+      const alsoOn = sources.length > 1 ? ` (and ${sources.length - 1} other page${sources.length > 2 ? 's' : ''})` : '';
       add('status4xx', p.url, `HTTP ${p.status}`,
         from
-          ? `Returns ${p.status} and is linked from ${fromPath}. If the page moved, 301 this URL to its replacement; ` +
-            `if it should not exist, remove or correct the link on ${fromPath}.`
+          ? `Returns ${p.status} and is linked from ${fromPath}${alsoOn}. If the page moved, 301 this URL to its replacement; ` +
+            `if it should not exist, remove or correct the link${sources.length > 1 ? 's' : ''}.`
           : `Returns ${p.status}. If the page moved, 301 this URL to its replacement; otherwise return 410 so Google drops it.`);
       if (from) {
-        add('brokenInternal', p.url, `linked from ${fromPath}`,
-          `${fromPath} links here and gets a ${p.status}. Edit that link to point somewhere real, or restore this page.`);
+        add('brokenInternal', p.url, `linked from ${fromPath}${alsoOn}`,
+          `${sources.length > 1 ? sources.length + ' pages link' : fromPath + ' links'} here and get${sources.length > 1 ? '' : 's'} a ${p.status}. ` +
+          `Edit ${sources.length > 1 ? 'those links' : 'that link'} to point somewhere real, or restore this page.`);
       }
       continue;
     }
@@ -759,6 +864,24 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
     }
   }
 
+  for (const f of flaky) {
+    add('flakyUnderLoad', f.url, `returned ${f.failedAs} during the crawl, 200 on re-check`,
+      `This page is not broken — it failed once under crawl load and answered normally when asked again a few seconds later. ` +
+      `The server is dropping requests when they arrive close together.`);
+  }
+
+  // Links written against the other hostname of the same domain. Reported per
+  // target rather than per link, so a nav repeated site-wide reads as one
+  // thing to fix in one template.
+  for (const [target, sources] of nonCanonicalLinks) {
+    const where = sources.length > 1
+      ? `${sources.length} pages link here by the wrong hostname`
+      : `${sources[0].replace(/^https?:\/\/[^/]+/, '') || '/'} links here by the wrong hostname`;
+    add('nonCanonicalLink', target, where,
+      `The link points at the other version of your domain, so the visitor is redirected before this page loads. ` +
+      `Rewrite ${sources.length > 1 ? 'those hrefs' : 'that href'} to ${target}.`);
+  }
+
   // A sitemap URL that nothing links to is reachable only by crawlers.
   const crawledOk = new Set(pages.filter(p => p.status >= 200 && p.status < 400).map(p => p.url));
   for (const url of sitemapUrls) {
@@ -834,6 +957,7 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
     health,
     counts,
     issues,
+    linkReport: buildLinkReport({ pages, external, linkSources, origin }),
     throttled: throttleHits > 0,
     throttleHits,
     crawled: pages.length,
@@ -849,8 +973,116 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
   };
 }
 
-async function runAudit(startUrl, options, onProgress, shouldStop) {
-  const crawled = await crawl(startUrl, options, onProgress, shouldStop);
+/* ── Broken-link report ─────────────────────────────────────────
+   The audit's issue list groups findings by check. This is the other
+   cut of the same data: every dead URL in one place, with the status
+   code, every page that links to it, and the specific repair. It is
+   what someone actually works from when clearing broken links.
+   ─────────────────────────────────────────────────────────────── */
+
+// The fix depends far more on *which* failure it is than on the fact that
+// something failed, so each status family gets its own instruction.
+// A template placeholder that never got substituted — ${var}, {{var}}, %7Bvar%7D
+// or a bare :param. The URL is malformed at the source, so whatever the far end
+// returns is beside the point: the link was never built correctly.
+const PLACEHOLDER = /(\$\{[^}]*\}|\{\{[^}]*\}\}|%24%7B|%7B%7B|\{[a-z_][a-z0-9_]*\})/i;
+
+function repairFor(status, error, kind, sourceCount, url) {
+  const links = sourceCount > 1 ? `all ${sourceCount} links` : 'the link';
+  const pages = sourceCount > 1 ? `${sourceCount} pages` : 'the linking page';
+  if (url && PLACEHOLDER.test(url)) {
+    const bit = (url.match(PLACEHOLDER) || [])[0];
+    return `This link contains "${bit}" — a template placeholder that was never filled in, so the URL is broken before it leaves your page. ` +
+      `Find where ${pages === 'the linking page' ? 'that page' : 'those pages'} build this link and make sure the variable is substituted; ` +
+      `in a theme or plugin this is usually a template string written with the wrong quotes.`;
+  }
+  if (kind === 'external') {
+    if (status === 0) return `No response from the other site — it may be gone, or the domain may have lapsed. Open it in a browser to confirm, then update or remove ${links}.`;
+    if (status === 404 || status === 410) return `The other site removed this page. Find its replacement on that site, or drop ${links}.`;
+    if (status >= 500) return `The other site is erroring. Re-check in a day or two; if it stays broken, replace ${links}.`;
+    return `Returns ${status}. Confirm in a browser, then update ${links} if it really is dead.`;
+  }
+  if (status === 0) return `The request failed outright${error ? ` (${error})` : ''}. Check the site is up and this URL is reachable from outside your network — if it only fails for the crawler, look at your firewall or bot protection.`;
+  if (status === 404) return `Nothing at this URL. If the page moved, add a 301 from here to its replacement — that keeps the ranking. If it was never meant to exist, correct the href on ${pages}.`;
+  if (status === 410) return `Deliberately gone. Only fix this if ${links} should not be there — remove ${sourceCount > 1 ? 'them' : 'it'}.`;
+  if (status === 403 || status === 401) return `The server refuses this request. Usually bot protection rather than a dead page — open it in a browser. If it loads fine, allow the crawler; if not, it needs restoring or the link needs removing.`;
+  if (status === 429) return 'Rate limited during the crawl, not necessarily broken. Re-run the audit at a gentler speed to confirm.';
+  if (status >= 500) return `Your server errors on this URL. Check the error log for the time of this crawl — a linked page returning ${status} loses both visitors and indexing.`;
+  return `Returns ${status}. Point ${links} at a URL that resolves, or fix the response for this one.`;
+}
+
+function buildLinkReport({ pages, external, linkSources, origin }) {
+  const short = u => (u || '').replace(/^https?:\/\/[^/]+/, '') || '/';
+  const items = [];
+  const totals = {
+    notFound: 0, gone: 0, forbidden: 0, otherClient: 0,
+    serverError: 0, noResponse: 0, externalBroken: 0
+  };
+
+  for (const p of pages) {
+    if (p.status !== 0 && p.status < 400) continue;
+    const sources = linkSources.get(p.url) || [];
+    if (p.status === 0) totals.noResponse++;
+    else if (p.status === 404) totals.notFound++;
+    else if (p.status === 410) totals.gone++;
+    else if (p.status === 401 || p.status === 403) totals.forbidden++;
+    else if (p.status >= 500) totals.serverError++;
+    else totals.otherClient++;
+    items.push({
+      url: p.url,
+      path: short(p.url),
+      kind: 'internal',
+      status: p.status,
+      label: p.status === 0 ? (p.error || 'No response') : 'HTTP ' + p.status,
+      sources: sources.map(short),
+      sourceCount: sources.length,
+      linked: sources.length > 0,
+      fix: repairFor(p.status, p.error, 'internal', sources.length, p.url)
+    });
+  }
+
+  for (const link of external) {
+    // Same rule as the issue list: a 401/403/405/429 from a responding server
+    // is bot protection, not a dead link. Listing those wastes the reader's
+    // time chasing links that work perfectly well for a human.
+    if ([401, 403, 405, 429].indexOf(link.status) > -1) continue;
+    if (link.status !== 0 && link.status < 400) continue;
+    const sources = link.sources || (link.from ? [link.from] : []);
+    totals.externalBroken++;
+    items.push({
+      url: link.url,
+      path: link.url.replace(/^https?:\/\//, '').slice(0, 80),
+      kind: 'external',
+      status: link.status,
+      label: link.error || 'HTTP ' + link.status,
+      sources: sources.map(short),
+      sourceCount: sources.length,
+      linked: sources.length > 0,
+      fix: repairFor(link.status, link.error, 'external', sources.length, link.url)
+    });
+  }
+
+  // Worst first, and within a severity the ones linked from the most pages —
+  // fixing those clears the most dead ends per edit.
+  const rank = s => (s === 0 ? 0 : s >= 500 ? 1 : s === 404 || s === 410 ? 2 : 3);
+  items.sort((a, b) =>
+    (a.kind === b.kind ? 0 : a.kind === 'internal' ? -1 : 1) ||
+    rank(a.status) - rank(b.status) ||
+    b.sourceCount - a.sourceCount ||
+    a.path.localeCompare(b.path));
+
+  totals.internalBroken = items.filter(i => i.kind === 'internal').length;
+  totals.broken = items.length;
+  // Dead ends a visitor can actually hit by clicking, which is the number
+  // that matters: an unlinked 404 found via the sitemap harms nobody today.
+  totals.reachable = items.filter(i => i.linked).length;
+  totals.linkInstances = items.reduce((n, i) => n + i.sourceCount, 0);
+
+  return { totals, items };
+}
+
+async function runAudit(startUrl, options, onProgress, shouldStop, shouldPause) {
+  const crawled = await crawl(startUrl, options, onProgress, shouldStop, shouldPause);
   const result = analyse(crawled);
   result.stopped = Boolean(shouldStop && shouldStop());
   result.settings = {

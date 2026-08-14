@@ -1527,6 +1527,7 @@
           </div>
           <div class="actions" style="margin-top:14px">
             <button class="btn btn-primary" id="aiRun">Check AI readiness</button>
+            <button class="btn" id="aiPause" hidden>Pause</button>
             <button class="btn" id="aiStop" hidden>Stop</button>
             <span class="field-hint" id="aiOut"></span>
           </div>
@@ -1609,6 +1610,7 @@
           </div>
           <div class="actions" style="margin-top:14px">
             <button class="btn btn-primary" id="auditRun">Run audit</button>
+            <button class="btn" id="auditPause" hidden>Pause</button>
             <button class="btn" id="auditStop" hidden>Stop</button>
             <span class="field-hint" id="auditOut"></span>
           </div>
@@ -1631,6 +1633,19 @@
           </div>
         </section>
 
+
+        <section class="w" id="auditLinksCard">
+          <div class="w-head">
+            <h3>Broken links &amp; error pages</h3>
+            <span class="info" title="Every URL that failed during the crawl, with the pages linking to it and what to change.">i</span>
+            <div class="w-tools"><span class="chip" id="auditLinkMeta"></span></div>
+          </div>
+          <div class="w-body">
+            <div class="kpis" id="auditLinkKpis"></div>
+            <p class="field-hint" id="auditLinkLead" style="margin:14px 0 0"></p>
+            <div id="auditLinkList" style="margin-top:12px"></div>
+          </div>
+        </section>
 
         <section class="w">
           <div class="w-head"><h3>What to fix</h3></div>
@@ -3606,6 +3621,7 @@
 
   /* ── Site Audit ───────────────────────────────────────────── */
   var auditTimer = null;
+  var auditPaused = false;
 
   function auditSeverityBar(counts) {
     var host = $('auditBarChart');
@@ -3651,6 +3667,144 @@
     host.appendChild(legend);
   }
 
+  /* ── Broken-link report ───────────────────────────────────────
+     The "what to fix" list is grouped by check; this is the same crawl
+     cut the other way — every dead URL, what it returned, which pages
+     link to it, and the specific repair for that status code.
+     ─────────────────────────────────────────────────────────────── */
+  function renderLinkReport(r) {
+    var card = $('auditLinksCard');
+    if (!card) return;
+    var rep = r.linkReport;
+    // An audit from an older run has no report; hiding beats showing zeros
+    // that would read as "nothing broken" when nothing was actually checked.
+    if (!rep) { card.hidden = true; return; }
+    card.hidden = false;
+    var t = rep.totals;
+
+    var clean = t.broken === 0;
+    var ext = r.externalChecked || 0;
+    $('auditLinkMeta').textContent = r.crawled + ' page' + (r.crawled === 1 ? '' : 's') + ' crawled · ' +
+      ext + ' outbound link' + (ext === 1 ? '' : 's') + ' checked';
+
+    renderKpis($('auditLinkKpis'), [
+      { key: 'broken', label: 'Broken links',
+        value: '<span style="color:' + (clean ? 'var(--good-text)' : 'var(--critical-text)') + '">' + fmtInt(t.broken) + '</span>',
+        note: t.linkInstances ? fmtInt(t.linkInstances) + ' link' + (t.linkInstances === 1 ? '' : 's') + ' to fix' : 'nothing broken' },
+      { key: '404', label: '404 not found', value: fmtInt(t.notFound),
+        note: t.gone ? '+ ' + t.gone + ' returning 410' : 'pages that do not exist' },
+      { key: '5xx', label: 'Server errors', value: fmtInt(t.serverError + t.noResponse),
+        note: t.noResponse ? t.noResponse + ' gave no response at all' : '5xx responses' },
+      { key: 'ext', label: 'Dead outbound', value: fmtInt(t.externalBroken),
+        note: 'links to other sites' }
+    ], null, function () {});
+
+    var lead = $('auditLinkLead');
+    if (clean) {
+      lead.style.color = 'var(--good-text)';
+      lead.textContent = 'No broken links. Every internal URL reached during the crawl responded, and every outbound link checked is still alive.';
+    } else {
+      lead.style.color = '';
+      lead.textContent = t.broken + ' URL' + (t.broken === 1 ? '' : 's') + ' failed, reached by ' +
+        t.linkInstances + ' link' + (t.linkInstances === 1 ? '' : 's') + ' across the site. ' +
+        (t.reachable ? t.reachable + ' of them ' + (t.reachable === 1 ? 'is' : 'are') + ' clickable by a visitor. ' : '') +
+        'Worst first — fixing the ones linked from the most pages clears the most dead ends per edit.';
+    }
+
+    var host = $('auditLinkList');
+    host.innerHTML = '';
+    rep.items.forEach(function (item, idx) {
+      var d = document.createElement('details');
+      d.className = 'issue';
+      if (idx === 0) d.open = true;
+
+      var sum = document.createElement('summary');
+      var sev = item.status === 0 || item.status >= 500 ? 'error' : item.kind === 'external' ? 'warning' : 'error';
+      sum.innerHTML = '<span class="sev sev-' + sev + '"></span><span class="grow"></span><span class="n"></span>';
+      sum.children[0].textContent = item.label;
+      sum.children[1].textContent = item.path;
+      sum.children[1].title = item.url;
+      sum.children[2].textContent = item.sourceCount
+        ? 'on ' + item.sourceCount + ' page' + (item.sourceCount === 1 ? '' : 's')
+        : 'not linked';
+
+      var preview = document.createElement('span');
+      preview.className = 'issue-preview';
+      preview.textContent = item.fix;
+      sum.appendChild(preview);
+      d.appendChild(sum);
+
+      var body = document.createElement('div');
+      body.className = 'issue-body';
+
+      var how = document.createElement('p');
+      how.className = 'issue-how';
+      var lab = document.createElement('strong');
+      lab.textContent = 'Fix: ';
+      how.appendChild(lab);
+      how.appendChild(document.createTextNode(item.fix));
+      body.appendChild(how);
+
+      var urlRow = document.createElement('div');
+      urlRow.className = 'issue-urls';
+      var head = document.createElement('div');
+      head.className = 'issue-url';
+      var a = document.createElement('a');
+      a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = item.url;
+      var det = document.createElement('span');
+      det.className = 'detail';
+      det.textContent = item.kind === 'external' ? 'outbound · ' + item.label : item.label;
+      head.appendChild(a); head.appendChild(det);
+      urlRow.appendChild(head);
+
+      if (item.sources.length) {
+        var srcLabel = document.createElement('div');
+        srcLabel.className = 'issue-current';
+        srcLabel.textContent = item.sourceCount === 1
+          ? 'Linked from this page:'
+          : 'Linked from these ' + item.sourceCount + ' pages:';
+        urlRow.appendChild(srcLabel);
+        item.sources.forEach(function (src) {
+          var row = document.createElement('div');
+          row.className = 'issue-url';
+          var link = document.createElement('a');
+          link.href = r.origin + (src === '/' ? '/' : src);
+          link.target = '_blank'; link.rel = 'noopener noreferrer';
+          link.textContent = src;
+          row.appendChild(link);
+          urlRow.appendChild(row);
+        });
+        // The crawler stops recording sources past a cap, so say so rather
+        // than letting a truncated list read as the complete picture.
+        if (item.sourceCount >= 25) {
+          var capped = document.createElement('div');
+          capped.className = 'issue-url';
+          capped.style.color = 'var(--ink-3)';
+          capped.textContent = 'and possibly more — this looks like a link in a shared header, footer or nav, so fix it in the template.';
+          urlRow.appendChild(capped);
+        }
+      } else {
+        var none = document.createElement('div');
+        none.className = 'issue-current';
+        none.textContent = 'Nothing on the site links here — found in the sitemap. No visitor can click through to it, but it should still be removed from the sitemap.';
+        urlRow.appendChild(none);
+      }
+
+      body.appendChild(urlRow);
+      d.appendChild(body);
+      host.appendChild(d);
+    });
+
+    if (clean) {
+      host.innerHTML = '';
+      var okMsg = document.createElement('p');
+      okMsg.style.cssText = 'margin:0;font-size:13px;color:var(--good-text)';
+      okMsg.textContent = 'Nothing to fix here.';
+      host.appendChild(okMsg);
+    }
+  }
+
   function renderAudit(r, tookMs) {
     $('auditResult').hidden = false;
     var grade = r.health >= 90 ? 'Healthy' : r.health >= 75 ? 'Needs attention' : r.health >= 50 ? 'Poor' : 'Critical';
@@ -3685,6 +3839,7 @@
       (r.robots.found ? ' · robots.txt honoured' : ' · no robots.txt');
     auditSeverityBar(r.counts);
 
+    renderLinkReport(r);
     renderActionPlan($('auditIssues'), r.issues);
     renderIssueList($('auditIssues'), r.issues, 'No problems found across ' + r.crawled + ' pages.', true);
 
@@ -3713,6 +3868,11 @@
     stop.hidden = true;
     stop.disabled = false;
     stop.textContent = 'Stop';
+    var pause = $('auditPause');
+    pause.hidden = true;
+    pause.disabled = false;
+    pause.textContent = 'Pause';
+    auditPaused = false;
     $('auditProgress').hidden = true;
     if (auditTimer) { clearInterval(auditTimer); auditTimer = null; }
   }
@@ -3724,6 +3884,9 @@
     stop.hidden = false;
     stop.disabled = false;
     stop.textContent = 'Stop';
+    var pause = $('auditPause');
+    pause.hidden = false;
+    pause.disabled = false;
     $('auditProgress').hidden = false;
     if (auditTimer) clearInterval(auditTimer);
     auditTimer = setInterval(pollAudit, 700);
@@ -3755,14 +3918,34 @@
       if (s.state === 'running') {
         var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
         $('auditBar').style.width = Math.max(4, pct) + '%';
-        var msg = 'Crawling — ' + s.crawled + ' of about ' + s.total + ' pages';
-        if (s.crawled > 2 && s.elapsedMs > 3000) {
-          var perPage = s.elapsedMs / s.crawled;
-          var left = Math.max(0, (s.total - s.crawled) * perPage) / 1000;
-          msg += ' · ' + humanDuration(left) + ' left';
+        auditPaused = Boolean(s.paused);
+
+        var pauseBtn = $('auditPause');
+        pauseBtn.hidden = false;
+        pauseBtn.textContent = s.paused ? 'Resume' : 'Pause';
+        pauseBtn.disabled = Boolean(s.stopping);
+
+        var counted = s.crawled + ' of about ' + s.total + ' pages';
+        if (s.stopping) {
+          $('auditRun').textContent = 'Stopping…';
+          say('auditOut', 'Finishing the requests already in flight — ' + counted + ' so far. ' +
+            'Results will show what was crawled.');
+          setPill($('auditPill'), 'warn', 'Stopping');
+        } else if (s.paused) {
+          $('auditRun').textContent = 'Paused';
+          say('auditOut', 'Paused at ' + counted + '. Resume picks up where it stopped.');
+          setPill($('auditPill'), 'warn', 'Paused');
+        } else {
+          $('auditRun').textContent = 'Scanning…';
+          var msg = 'Crawling — ' + counted;
+          if (s.crawled > 2 && s.elapsedMs > 3000) {
+            var perPage = s.elapsedMs / s.crawled;
+            var left = Math.max(0, (s.total - s.crawled) * perPage) / 1000;
+            msg += ' · ' + humanDuration(left) + ' left';
+          }
+          say('auditOut', msg + '…');
+          setPill($('auditPill'), 'warn', 'Running');
         }
-        say('auditOut', s.stopping ? 'Stopping…' : msg + '…');
-        setPill($('auditPill'), 'warn', 'Running');
         return;
       }
       resetAuditControls();
@@ -3808,11 +3991,23 @@
     $('auditPace').addEventListener('change', updateEta);
     updateEta();
 
+    $('auditPause').addEventListener('click', function () {
+      var next = !auditPaused;
+      var btn = $('auditPause');
+      btn.disabled = true;
+      srv('/api/audit/pause', { paused: next }).then(function (r) {
+        auditPaused = Boolean(r.paused);
+        btn.textContent = auditPaused ? 'Resume' : 'Pause';
+      }).catch(function (e) {
+        say('auditOut', e.message, 'err');
+      }).then(function () { btn.disabled = false; pollAudit(); });
+    });
+
     $('auditStop').addEventListener('click', function () {
       $('auditStop').disabled = true;
       $('auditStop').textContent = 'Stopping…';
+      $('auditPause').disabled = true;
       srv('/api/audit/stop', {}).catch(function () {});
-      say('auditOut', 'Stopping after the pages already in flight…');
     });
 
     runBtn.addEventListener('click', function () {
@@ -3829,6 +4024,10 @@
       $('auditStop').hidden = false;
       $('auditStop').disabled = false;
       $('auditStop').textContent = 'Stop';
+      $('auditPause').hidden = false;
+      $('auditPause').disabled = false;
+      $('auditPause').textContent = 'Pause';
+      auditPaused = false;
       $('auditProgress').hidden = false;
       $('auditBar').style.width = '4%';
       say('auditOut', 'Starting…');
@@ -3858,12 +4057,16 @@
 
   /* ── AI Search readiness ──────────────────────────────────── */
   var aiTimer = null;
+  var aiPaused = false;
 
   function resetAiControls() {
     $('aiRun').disabled = false;
     $('aiRun').textContent = 'Check AI readiness';
     var stop = $('aiStop');
     stop.hidden = true; stop.disabled = false; stop.textContent = 'Stop';
+    var pause = $('aiPause');
+    pause.hidden = true; pause.disabled = false; pause.textContent = 'Pause';
+    aiPaused = false;
     $('aiProgress').hidden = true;
     if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
   }
@@ -3873,6 +4076,8 @@
     $('aiRun').textContent = 'Checking…';
     var stop = $('aiStop');
     stop.hidden = false; stop.disabled = false; stop.textContent = 'Stop';
+    var pause = $('aiPause');
+    pause.hidden = false; pause.disabled = false;
     $('aiProgress').hidden = false;
     if (aiTimer) clearInterval(aiTimer);
     aiTimer = setInterval(pollAi, 700);
@@ -3920,8 +4125,27 @@
       if (s.state === 'running') {
         var pct = s.total ? Math.round(s.crawled / s.total * 100) : 0;
         $('aiBar').style.width = Math.max(4, pct) + '%';
-        say('aiOut', s.stopping ? 'Stopping…' : 'Reading — ' + s.crawled + ' of about ' + s.total + ' pages…');
-        setPill($('aiPill'), 'warn', 'Running');
+        aiPaused = Boolean(s.paused);
+
+        var aiPauseBtn = $('aiPause');
+        aiPauseBtn.hidden = false;
+        aiPauseBtn.textContent = s.paused ? 'Resume' : 'Pause';
+        aiPauseBtn.disabled = Boolean(s.stopping);
+
+        var read = s.crawled + ' of about ' + s.total + ' pages';
+        if (s.stopping) {
+          $('aiRun').textContent = 'Stopping…';
+          say('aiOut', 'Finishing the requests already in flight — ' + read + ' so far.');
+          setPill($('aiPill'), 'warn', 'Stopping');
+        } else if (s.paused) {
+          $('aiRun').textContent = 'Paused';
+          say('aiOut', 'Paused at ' + read + '. Resume picks up where it stopped.');
+          setPill($('aiPill'), 'warn', 'Paused');
+        } else {
+          $('aiRun').textContent = 'Checking…';
+          say('aiOut', 'Reading — ' + read + '…');
+          setPill($('aiPill'), 'warn', 'Running');
+        }
         return;
       }
       resetAiControls();
@@ -3961,9 +4185,22 @@
     var runBtn = $('aiRun');
     if (!runBtn) return;
 
+    $('aiPause').addEventListener('click', function () {
+      var next = !aiPaused;
+      var btn = $('aiPause');
+      btn.disabled = true;
+      srv('/api/aisearch/pause', { paused: next }).then(function (r) {
+        aiPaused = Boolean(r.paused);
+        btn.textContent = aiPaused ? 'Resume' : 'Pause';
+      }).catch(function (e) {
+        say('aiOut', e.message, 'err');
+      }).then(function () { btn.disabled = false; pollAi(); });
+    });
+
     $('aiStop').addEventListener('click', function () {
       $('aiStop').disabled = true;
       $('aiStop').textContent = 'Stopping…';
+      $('aiPause').disabled = true;
       srv('/api/aisearch/stop', {}).catch(function () {});
     });
 
@@ -3978,6 +4215,12 @@
       runBtn.disabled = true;
       runBtn.textContent = 'Checking…';
       $('aiStop').hidden = false;
+      $('aiStop').disabled = false;
+      $('aiStop').textContent = 'Stop';
+      $('aiPause').hidden = false;
+      $('aiPause').disabled = false;
+      $('aiPause').textContent = 'Pause';
+      aiPaused = false;
       $('aiProgress').hidden = false;
       $('aiBar').style.width = '4%';
       say('aiOut', 'Starting…');

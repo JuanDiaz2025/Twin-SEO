@@ -55,14 +55,29 @@ function readJson(file, fallback) {
   catch (e) { return fallback; }
 }
 
+// Files that ship *with* the app rather than being written by it. In a packaged
+// binary there is no source tree to read them from, so they travel inside the
+// executable as assets; from a checkout they are ordinary files.
+function readBundledJson(assetName, file, fallback) {
+  if (seaAsset) {
+    try { return JSON.parse(seaAsset(assetName, 'utf8')); }
+    catch (e) { return fallback; }
+  }
+  return readJson(file, fallback);
+}
+
 function writeJson(file, value) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
 
-// Optional defaults shipped alongside the app. Kept out of version control so
-// a key can travel with a download without being published to a public repo.
-const DEFAULTS_FILE = path.join(__dirname, 'defaults.json');
+// Optional defaults that travel *beside* the app, never inside it. Deliberately
+// not baked into the executable and not committed: the repository is public and
+// this file may hold an API key. Packaged, it is read from the folder holding
+// the exe; from a checkout, from app/.
+const DEFAULTS_FILE = IS_PACKAGED
+  ? path.join(BASE, 'defaults.json')
+  : path.join(__dirname, 'defaults.json');
 let bundledDefaults = null;
 function loadDefaults() {
   if (bundledDefaults === null) bundledDefaults = readJson(DEFAULTS_FILE, {});
@@ -322,14 +337,14 @@ function startAudit(startUrl, maxPages, pace) {
   const tuning = PACE[pace] || PACE.normal;
   audit = {
     state: 'running', crawled: 0, total: 1, result: null, error: '',
-    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false,
+    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false, paused: false,
     maxPages, pace: pace || 'normal'
   };
   runAudit(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
     audit.crawled = done;
     audit.total = total;
     audit.lastBeat = Date.now();   // proof of life for the watchdog
-  }, () => audit.stop).then(result => {
+  }, () => audit.stop, () => audit.paused).then(result => {
     audit.result = result;
     audit.state = 'done';
     audit.tookMs = Date.now() - audit.startedAt;
@@ -484,13 +499,13 @@ function startAiScan(startUrl, maxPages, pace) {
   const tuning = PACE[pace] || PACE.normal;
   aiScan = {
     state: 'running', crawled: 0, total: 1, result: null, error: '',
-    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false
+    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false, paused: false
   };
   runAiScan(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
     aiScan.crawled = done;
     aiScan.total = total;
     aiScan.lastBeat = Date.now();
-  }, () => aiScan.stop).then(result => {
+  }, () => aiScan.stop, () => aiScan.paused).then(result => {
     aiScan.result = result;
     aiScan.state = 'done';
     aiScan.tookMs = Date.now() - aiScan.startedAt;
@@ -514,7 +529,7 @@ async function dashboardData(days) {
   const cfg = loadConfig();
   const out = { fetchedAt: new Date().toISOString(), sources: {}, notes: [] };
 
-  const semrush = readJson(SEMRUSH_FILE, null);
+  const semrush = readBundledJson('semrush', SEMRUSH_FILE, null);
   if (semrush) {
     out.semrush = semrush;
     out.sources.semrush = 'export';
@@ -779,13 +794,23 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { started: true, url: target.toString() });
     }
 
+    if (route === '/api/aisearch/pause' && req.method === 'POST') {
+      const body = await readBody(req);
+      const want = body.paused !== false;
+      if (aiScan.state === 'running') {
+        aiScan.paused = want;
+        if (!want) aiScan.lastBeat = Date.now();
+      }
+      return send(res, 200, { paused: aiScan.paused });
+    }
+
     if (route === '/api/aisearch/stop' && req.method === 'POST') {
-      if (aiScan.state === 'running') aiScan.stop = true;
+      if (aiScan.state === 'running') { aiScan.stop = true; aiScan.paused = false; }
       return send(res, 200, { stopping: aiScan.state === 'running' });
     }
 
     if (route === '/api/aisearch/status') {
-      if (aiScan.state === 'running' && aiScan.lastBeat && Date.now() - aiScan.lastBeat > 5 * 60 * 1000) {
+      if (aiScan.state === 'running' && !aiScan.paused && aiScan.lastBeat && Date.now() - aiScan.lastBeat > 5 * 60 * 1000) {
         aiScan.state = 'error';
         aiScan.error = 'The scan stopped responding and was abandoned. Run it again.';
       }
@@ -793,20 +818,32 @@ const server = http.createServer(async (req, res) => {
         state: aiScan.state, crawled: aiScan.crawled, total: aiScan.total, url: aiScan.url,
         error: aiScan.error, elapsedMs: aiScan.startedAt ? Date.now() - aiScan.startedAt : 0,
         stopping: Boolean(aiScan.stop && aiScan.state === 'running'),
+        paused: Boolean(aiScan.paused && aiScan.state === 'running'),
         tookMs: aiScan.tookMs || 0,
         result: aiScan.state === 'done' ? aiScan.result : null
       });
     }
 
+    if (route === '/api/audit/pause' && req.method === 'POST') {
+      const body = await readBody(req);
+      const want = body.paused !== false;
+      if (audit.state === 'running') {
+        audit.paused = want;
+        // A paused crawl makes no progress, so exempt it from the watchdog.
+        if (!want) audit.lastBeat = Date.now();
+      }
+      return send(res, 200, { paused: audit.paused });
+    }
+
     if (route === '/api/audit/stop' && req.method === 'POST') {
-      if (audit.state === 'running') audit.stop = true;
+      if (audit.state === 'running') { audit.stop = true; audit.paused = false; }
       return send(res, 200, { stopping: audit.state === 'running' });
     }
 
     if (route === '/api/audit/status') {
       // Nothing should stay "running" forever: if a crawl has made no progress
       // for five minutes it is gone, and a new one must be allowed to start.
-      if (audit.state === 'running' && audit.lastBeat && Date.now() - audit.lastBeat > 5 * 60 * 1000) {
+      if (audit.state === 'running' && !audit.paused && audit.lastBeat && Date.now() - audit.lastBeat > 5 * 60 * 1000) {
         audit.state = 'error';
         audit.error = 'The crawl stopped responding and was abandoned. Run it again.';
       }
@@ -818,6 +855,7 @@ const server = http.createServer(async (req, res) => {
         error: audit.error,
         elapsedMs: audit.startedAt ? Date.now() - audit.startedAt : 0,
         stopping: Boolean(audit.stop && audit.state === 'running'),
+        paused: Boolean(audit.paused && audit.state === 'running'),
         tookMs: audit.tookMs || 0,
         result: audit.state === 'done' ? audit.result : null
       });

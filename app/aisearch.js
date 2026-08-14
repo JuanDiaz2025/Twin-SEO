@@ -359,10 +359,10 @@ function analyse({ pages, origin }, access, profile) {
   };
 }
 
-async function runAiScan(startUrl, options, onProgress, shouldStop) {
+async function runAiScan(startUrl, options, onProgress, shouldStop, shouldPause) {
   const origin = new URL(startUrl).origin;
   const [crawled, access] = await Promise.all([
-    crawl(startUrl, options, onProgress, shouldStop),
+    crawl(startUrl, options, onProgress, shouldStop, shouldPause),
     botAccess(origin)
   ]);
 
