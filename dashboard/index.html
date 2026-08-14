@@ -647,6 +647,11 @@
     background: var(--accent-line); opacity: .35;
   }
 
+  .live-tag {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+    background: var(--good); color: #fff; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+  }
   .sample-flag {
     font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
     background: var(--warning); color: #241a00; padding: 3px 7px; border-radius: 4px; font-weight: 700;
@@ -900,6 +905,10 @@
       <div class="snapshot-strip">
         <span class="phase-tag" id="pageTag">Phase 1</span>
         <span id="pageStrip">Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.</span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <span class="field-hint" id="liveOut"></span>
+          <button class="btn" id="btnLive">Refresh live data</button>
+        </span>
       </div>
     </header>
 
@@ -4112,6 +4121,172 @@
     });
   }
 
+
+  /* ── Live dashboard ───────────────────────────────────────────
+     Replaces the snapshot figures with real ones wherever a source
+     is connected, and marks every widget it touches so a live
+     number is never mistaken for a placeholder.
+     ─────────────────────────────────────────────────────────────── */
+  function markLive(widgetId, when) {
+    var w = $(widgetId);
+    if (!w) return;
+    var head = w.querySelector('.w-tools') || w.querySelector('.w-head');
+    if (!head) return;
+    var tag = w.querySelector('.live-tag');
+    if (!tag) {
+      tag = document.createElement('span');
+      tag.className = 'live-tag';
+      head.insertBefore(tag, head.firstChild);
+    }
+    tag.textContent = 'LIVE';
+    tag.title = 'Fetched ' + (when ? new Date(when).toLocaleString() : 'just now');
+  }
+
+  function setMetric(widgetId, label, value, note) {
+    var w = $(widgetId);
+    if (!w) return;
+    var tiles = w.querySelectorAll('.metric');
+    for (var i = 0; i < tiles.length; i++) {
+      var eyebrow = tiles[i].querySelector('.eyebrow');
+      if (!eyebrow || eyebrow.textContent.trim().toLowerCase() !== label.toLowerCase()) continue;
+      var val = tiles[i].querySelector('.metric-val');
+      if (val) {
+        val.textContent = '';
+        val.appendChild(document.createTextNode(value));
+      }
+      if (note != null) {
+        var n = tiles[i].querySelector('.metric-note');
+        if (n) n.textContent = note;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function applyLiveDashboard(d) {
+    var touched = [];
+
+    if (d.searchConsole) {
+      var g = d.searchConsole;
+      setMetric('w-seo', 'Organic Traffic', fmtInt(g.clicks), g.days + ' days of Search Console clicks');
+      setMetric('w-seo', 'Organic Keywords', fmtInt(g.rankingQueries), 'queries with impressions');
+      markLive('w-seo', d.fetchedAt);
+      touched.push('SEO Overview');
+
+      // The Search Console widget can show its real numbers instead of an empty state.
+      var gsc = $('w-gsc');
+      if (gsc) {
+        var body = gsc.querySelector('.w-body');
+        if (body) {
+          body.innerHTML = '<div class="kpis"></div>';
+          renderKpis(body.firstChild, [
+            { key: 'c', label: 'Clicks', value: fmtInt(g.clicks) },
+            { key: 'i', label: 'Impressions', value: fmtInt(g.impressions) },
+            { key: 'r', label: 'CTR', value: g.ctr.toFixed(2) + '%' },
+            { key: 'p', label: 'Avg position', value: g.position.toFixed(1) }
+          ], null, function () {});
+        }
+        markLive('w-gsc', d.fetchedAt);
+        touched.push('Search Console');
+      }
+    }
+
+    if (d.analytics) {
+      var a = d.analytics;
+      var replaceEmpty = function (id, rows) {
+        var w = $(id);
+        if (!w) return;
+        var body = w.querySelector('.w-body');
+        if (!body) return;
+        body.innerHTML = '<div class="kpis"></div>';
+        renderKpis(body.firstChild, rows, null, function () {});
+        markLive(id, d.fetchedAt);
+      };
+      replaceEmpty('w-traffic', [
+        { key: 's', label: 'Sessions', value: fmtInt(a.sessions) },
+        { key: 'u', label: 'Active users', value: fmtInt(a.users) },
+        { key: 'e', label: 'Engaged', value: fmtInt(a.engaged) },
+        { key: 'r', label: 'Engagement rate', value: a.engagementRate.toFixed(1) + '%' }
+      ]);
+      touched.push('Traffic Analytics');
+
+      var pv = $('w-pageviews');
+      if (pv && a.topPages && a.topPages.length) {
+        var pbody = pv.querySelector('.w-body');
+        pbody.innerHTML = '<div style="overflow-x:auto"><table class="data-tbl"></table></div>';
+        renderTable(pbody.querySelector('table'), [
+          { key: 'key', label: 'Landing page' },
+          { key: 'sessions', label: 'Sessions', fmt: fmtInt },
+          { key: 'users', label: 'Users', fmt: fmtInt }
+        ], a.topPages);
+        markLive('w-pageviews', d.fetchedAt);
+        touched.push('Top Pageviews');
+      }
+
+      var oti = $('w-oti');
+      if (oti) {
+        setMetric('w-oti', 'Organic sessions', fmtInt(a.sessions), 'last ' + (a.labels ? a.labels.length : 28) + ' days');
+        markLive('w-oti', d.fetchedAt);
+        touched.push('Organic Traffic Insights');
+      }
+    }
+
+    if (d.siteAudit) {
+      var sa = $('w-siteaudit');
+      if (sa) {
+        setMetric('w-siteaudit', 'Site health', d.siteAudit.health + '%');
+        setMetric('w-siteaudit', 'Errors', fmtInt(d.siteAudit.counts.error));
+        setMetric('w-siteaudit', 'Warnings', fmtInt(d.siteAudit.counts.warning));
+        markLive('w-siteaudit', d.siteAudit.ranAt);
+        touched.push('Site Audit');
+      }
+    }
+
+    if (d.aiSearch) {
+      var ai = d.aiSearch;
+      setMetric('w-aisearch', 'AI Visibility', String(ai.score), 'readiness score');
+      setMetric('w-aisearch', 'Mentions', ai.allowed + '/' + ai.total, 'assistants allowed in');
+      setMetric('w-aisearch', 'Cited Pages', String(ai.withSchema), 'pages with schema');
+      markLive('w-aisearch', ai.ranAt);
+      touched.push('AI Search');
+    }
+
+    return touched;
+  }
+
+  function refreshLiveDashboard() {
+    if (!SERVER) {
+      say('liveOut', 'Live data comes from the Twin SEO app. Run it to see real numbers here.', 'err');
+      return;
+    }
+    var btn = $('btnLive');
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    say('liveOut', 'Pulling from every connected source…');
+    srv('/api/dashboard?days=28', null, 90000).then(function (d) {
+      var touched = applyLiveDashboard(d);
+      var missing = Object.keys(d.sources).filter(function (k) { return d.sources[k] !== 'live'; });
+      if (touched.length) {
+        $('pageTag').textContent = 'Live';
+        $('pageStrip').innerHTML = '';
+        $('pageStrip').appendChild(document.createTextNode(
+          'Live as of ' + new Date(d.fetchedAt).toLocaleTimeString() + ' — ' + touched.join(', ') +
+          (missing.length ? '. Still on snapshot: ' + missing.join(', ') + '.' : '.')));
+      }
+      say('liveOut', touched.length
+        ? touched.length + ' widget' + (touched.length === 1 ? '' : 's') + ' updated'
+        : 'Nothing connected yet — see the notes below.', touched.length ? 'ok' : 'err');
+      if (d.notes && d.notes.length) {
+        d.notes.forEach(function (n) { toast(n.source + ': ' + n.reason); });
+      }
+    }).catch(function (e) {
+      say('liveOut', e.message, 'err');
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = 'Refresh live data';
+    });
+  }
+
   /* ── View routing ─────────────────────────────────────────── */
   var VIEW_META = {
     dashboard: {
@@ -4255,6 +4430,7 @@
   wireAudit();
   wirePsi();
   wireAiSearch();
+  if ($('btnLive')) $('btnLive').addEventListener('click', refreshLiveDashboard);
   (function seedAuditUrl() {
     var f = $('auditUrl');
     if (!f) return;

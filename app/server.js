@@ -500,6 +500,95 @@ function startAiScan(startUrl, maxPages, pace) {
   });
 }
 
+/* ── Dashboard feed ─────────────────────────────────────────────
+   Assembles every number the dashboard can show for real, from the
+   sources already connected. Each block is independent: one source
+   being unavailable must not blank the rest.
+   ─────────────────────────────────────────────────────────────── */
+
+async function dashboardData(days) {
+  const cfg = loadConfig();
+  const out = { fetchedAt: new Date().toISOString(), sources: {}, notes: [] };
+
+  const attempt = async (name, fn) => {
+    try {
+      out[name] = await fn();
+      out.sources[name] = 'live';
+    } catch (err) {
+      out[name] = null;
+      out.sources[name] = 'unavailable';
+      out.notes.push({ source: name, reason: err.message || String(err) });
+    }
+  };
+
+  await Promise.all([
+    attempt('searchConsole', async () => {
+      if (!cfg.gscSite) throw new Error('No Search Console property set.');
+      const r = await gscReport(days, 'query');
+      return {
+        property: cfg.gscSite,
+        clicks: r.totals.clicks,
+        impressions: r.totals.impressions,
+        ctr: r.totals.ctr,
+        position: r.totals.position,
+        days: r.labels.length,
+        labels: r.labels,
+        series: r.series,
+        rankingQueries: r.rows.length,
+        topQueries: r.rows.slice(0, 5)
+      };
+    }),
+
+    attempt('analytics', async () => {
+      if (!cfg.ga4Property) throw new Error('No GA4 property set.');
+      const r = await ga4Report(days, 'landing');
+      return {
+        property: cfg.ga4Property,
+        sessions: r.totals.sessions,
+        users: r.totals.users,
+        engaged: r.totals.engaged,
+        engagementRate: r.totals.rate,
+        labels: r.labels,
+        series: r.series,
+        topPages: r.rows.slice(0, 5)
+      };
+    })
+  ]);
+
+  // These come from scans this app ran itself, so they are already local.
+  if (audit.state === 'done' && audit.result) {
+    out.siteAudit = {
+      health: audit.result.health,
+      counts: audit.result.counts,
+      crawled: audit.result.crawled,
+      ranAt: audit.startedAt
+    };
+    out.sources.siteAudit = 'live';
+  } else {
+    out.siteAudit = null;
+    out.sources.siteAudit = 'not run';
+  }
+
+  if (aiScan.state === 'done' && aiScan.result) {
+    const bots = aiScan.result.access.bots;
+    out.aiSearch = {
+      score: aiScan.result.score,
+      allowed: bots.filter(b => b.state !== 'blocked').length,
+      total: bots.length,
+      withSchema: aiScan.result.entity.withSchema,
+      pages: aiScan.result.pagesAnalysed,
+      questionShare: aiScan.result.entity.questionShare,
+      ranAt: aiScan.startedAt
+    };
+    out.sources.aiSearch = 'live';
+  } else {
+    out.aiSearch = null;
+    out.sources.aiSearch = 'not run';
+  }
+
+  return out;
+}
+
 /* ── HTTP plumbing ──────────────────────────────────────────── */
 
 function send(res, status, body, type) {
@@ -651,6 +740,11 @@ const server = http.createServer(async (req, res) => {
       if (!target) return send(res, 400, { error: 'No URL to test.' });
       const strategy = url.searchParams.get('strategy') || 'mobile';
       return send(res, 200, await pageSpeed(target, strategy));
+    }
+
+    if (route === '/api/dashboard') {
+      const days = Math.min(400, Math.max(1, Number(url.searchParams.get('days')) || 28));
+      return send(res, 200, await dashboardData(days));
     }
 
     if (route === '/api/aisearch/start' && req.method === 'POST') {
