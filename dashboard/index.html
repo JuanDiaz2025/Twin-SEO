@@ -1627,6 +1627,7 @@
                 <label for="fPsiKey">PageSpeed API key <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label>
                 <input class="input" id="fPsiKey" type="text" spellcheck="false" placeholder="AIza…">
                 <span class="field-hint">Page speed works without one, but Google rate-limits by IP address. A free key from Google Cloud (Credentials → Create API key, with the PageSpeed Insights API enabled) removes that limit.</span>
+                <span class="field-hint" id="psiKeyState"></span>
               </div>
 
               <div class="field" id="tokenPasteRow">
@@ -3053,7 +3054,16 @@
     $('fGa4Prop').value = cfg.ga4Property;
     $('fGa4Meas').value = cfg.ga4Measurement;
     $('fSa').value = cfg.serviceAccount;
-    if ($('fPsiKey')) $('fPsiKey').value = cfg.psiKey || '';
+    if ($('fPsiKey')) {
+      $('fPsiKey').value = cfg.psiKey || '';
+      var keyHint = $('psiKeyState');
+      if (keyHint) {
+        keyHint.textContent = serverStatus && serverStatus.psiKeyIsBundled
+          ? 'Using the key bundled with this copy of the app. Typing one here replaces it.'
+          : (cfg.psiKey ? 'Key saved.' : '');
+        keyHint.style.color = 'var(--good-text)';
+      }
+    }
     $('fToken').value = cfg.token;
     if (SERVER) {
       $('originLabel').textContent = 'Authorized redirect URI';

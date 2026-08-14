@@ -8,3 +8,7 @@ node_modules/
 
 # Built executables — far too large for git; build them with app/build-exe.mjs
 build/
+
+# Bundled local defaults may hold an API key — never commit it
+app/defaults.json
+dist/twin-seo-source.zip

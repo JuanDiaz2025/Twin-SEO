@@ -59,14 +59,24 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
 
+// Optional defaults shipped alongside the app. Kept out of version control so
+// a key can travel with a download without being published to a public repo.
+const DEFAULTS_FILE = path.join(__dirname, 'defaults.json');
+let bundledDefaults = null;
+function loadDefaults() {
+  if (bundledDefaults === null) bundledDefaults = readJson(DEFAULTS_FILE, {});
+  return bundledDefaults;
+}
+
 function loadConfig() {
   const stored = readJson(CONFIG_FILE, {});
+  const defaults = loadDefaults();
   return {
     // Environment wins, so a deployment can inject secrets without a writable disk.
     clientId: process.env.GOOGLE_CLIENT_ID || stored.clientId || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
-    psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || '',
+    psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || defaults.psiKey || '',
     ga4Measurement: stored.ga4Measurement || '',
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, '')
   };
@@ -376,6 +386,18 @@ async function pageSpeed(url, strategy) {
   try { data = JSON.parse(text); } catch (e) { /* fall through to the raw text */ }
   if (!res.ok) {
     const message = (data && data.error && data.error.message) || text.slice(0, 300) || `HTTP ${res.status}`;
+    // "blocked" means the key exists but the API is not enabled for its project,
+    // or the key's API restrictions exclude PageSpeed — both fixable in a minute.
+    if (/are blocked|has not been used in project|is disabled/i.test(message)) {
+      const blocked = new Error(
+        'Your PageSpeed key was accepted, but Google is blocking the call: ' + message +
+        ' Two things to check, both on the key\'s Google Cloud project. First, enable the API at ' +
+        'https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com — this is the usual cause. ' +
+        'Second, open the key under APIs & Services → Credentials: if "API restrictions" is set to "Restrict key", ' +
+        'PageSpeed Insights API must be in the allowed list.');
+      blocked.status = res.status;
+      throw blocked;
+    }
     const err = new Error(res.status === 429
       ? 'Google is rate-limiting PageSpeed requests from this network. A free API key removes the limit — ' +
         'create one at https://console.cloud.google.com/apis/credentials (Create credentials → API key), enable the ' +
@@ -525,6 +547,7 @@ const server = http.createServer(async (req, res) => {
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement,
         hasPsiKey: Boolean(cfg.psiKey),
+        psiKeyIsBundled: Boolean(!process.env.PAGESPEED_API_KEY && !readJson(CONFIG_FILE, {}).psiKey && loadDefaults().psiKey),
         redirectUri: redirectUri(req)
       });
     }
@@ -701,7 +724,8 @@ server.listen(PORT, HOST, () => {
   console.log(`  OAuth credentials     ${cfg.clientId && cfg.clientSecret ? 'set' : 'NOT SET — add them on the Connections screen'}`);
   console.log(`  Google account        ${tokens.refresh_token ? (tokens.email || 'connected') : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
-  console.log(`  GA4 property          ${cfg.ga4Property || '—'}\n`);
+  console.log(`  GA4 property          ${cfg.ga4Property || '—'}`);
+  console.log(`  PageSpeed key         ${cfg.psiKey ? 'set' : 'not set (Google will rate-limit)'}\n`);
   if (process.argv.includes('--open') || IS_PACKAGED) {
     openBrowser(`http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   }
