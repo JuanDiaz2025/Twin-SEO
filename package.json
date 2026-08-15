@@ -6,7 +6,8 @@
   "main": "app/server.js",
   "scripts": {
     "start": "node app/server.js",
-    "dev": "node app/server.js"
+    "dev": "node app/server.js",
+    "lint": "node scripts/lint.mjs"
   },
   "engines": {
     "node": ">=18"

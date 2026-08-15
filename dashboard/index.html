@@ -3935,6 +3935,11 @@
     renderTable($('auditPages'), [
       { key: 'path', label: 'Page' },
       { key: 'status', label: 'Status' },
+      { key: 'depth', label: 'Clicks deep', fmt: function (v) {
+        // null means nothing links here — the orphan finding covers it, but
+        // showing a bare dash would read as "we did not measure".
+        return v === null || v === undefined ? 'not linked' : String(v);
+      } },
       { key: 'ms', label: 'Time', fmt: function (v) { return v >= 1000 ? (v / 1000).toFixed(1) + 's' : v + 'ms'; } },
       { key: 'words', label: 'Words', fmt: fmtInt },
       { key: 'kb', label: 'Size', fmt: function (v) { return v ? v + ' KB' : '—'; } }
@@ -3942,6 +3947,7 @@
       return {
         path: p.url.replace(/^https?:\/\/[^/]+/, '') || '/',
         status: p.error || p.status,
+        depth: p.depth,
         ms: p.ms,
         words: p.words,
         kb: Math.round((p.bytes || 0) / 1024)
@@ -4023,6 +4029,19 @@
           $('auditRun').textContent = 'Paused';
           say('auditOut', 'Paused at ' + counted + '. Resume picks up where it stopped.');
           setPill($('auditPill'), 'warn', 'Paused');
+        } else if (s.phase === 'rechecking') {
+          // The crawl is done but the run is not. Without this the bar sits at
+          // the final page count for minutes and the scan looks hung.
+          $('auditRun').textContent = 'Re-checking…';
+          say('auditOut', 'Crawled ' + s.crawled + ' pages. Re-checking the ' + (s.phaseOf || 0) +
+            ' that failed, one at a time — ' + (s.phaseAt || 0) + ' of ' + (s.phaseOf || 0) +
+            '. A page that only failed under load is not broken.');
+          setPill($('auditPill'), 'warn', 'Re-checking');
+        } else if (s.phase === 'outbound') {
+          $('auditRun').textContent = 'Checking links…';
+          say('auditOut', 'Crawled ' + s.crawled + ' pages. Now checking outbound links — ' +
+            (s.phaseAt || 0) + ' of ' + (s.phaseOf || 0) + '.');
+          setPill($('auditPill'), 'warn', 'Checking links');
         } else {
           $('auditRun').textContent = 'Scanning…';
           var msg = 'Crawling — ' + counted;
@@ -4229,6 +4248,11 @@
           $('aiRun').textContent = 'Paused';
           say('aiOut', 'Paused at ' + read + '. Resume picks up where it stopped.');
           setPill($('aiPill'), 'warn', 'Paused');
+        } else if (s.phase === 'rechecking' || s.phase === 'outbound') {
+          $('aiRun').textContent = 'Finishing…';
+          say('aiOut', 'Read ' + s.crawled + ' pages. Finishing up — ' +
+            (s.phaseAt || 0) + ' of ' + (s.phaseOf || 0) + '.');
+          setPill($('aiPill'), 'warn', 'Finishing');
         } else {
           $('aiRun').textContent = 'Checking…';
           say('aiOut', 'Reading — ' + read + '…');

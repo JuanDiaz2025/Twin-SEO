@@ -414,7 +414,9 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
         if (blockedByRobots(new URL(url).pathname, robots)) continue;
       } catch (e) { continue; }
       seen.add(url);
-      depths.set(url, 1);
+      // Depth 1 only to order the queue. How deep the page really is gets
+      // worked out from the link graph once the crawl is done — a URL that
+      // arrived via the sitemap has no known link distance yet.
       queue.push({ url, depth: 1 });
     }
   }
@@ -662,7 +664,7 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
         visit(job.url, job.depth).then(page => {
           pages.push(page);
           if (onProgress) {
-            onProgress(pages.length, Math.min(opts.maxPages, pages.length + active + queue.length));
+            onProgress(pages.length, Math.min(opts.maxPages, pages.length + active + queue.length), 'crawling');
           }
         }).catch(() => {}).then(() => { active--; pump(); });
       }
@@ -680,8 +682,12 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
   const suspects = pages.filter(p => p.status === 0 || p.status >= 500).slice(0, 25);
   if (suspects.length && !(shouldStop && shouldStop())) {
     await sleep(3000);
+    let rechecked = 0;
     for (const p of suspects) {
       if (shouldStop && shouldStop()) break;
+      // Keep reporting through this phase. It can run for minutes on a slow
+      // host, and a silent crawl looks to the watchdog like a dead one.
+      if (onProgress) onProgress(pages.length, pages.length, 'rechecking', ++rechecked, suspects.length);
       await sleep(1200);
       // visit() again rather than a bare fetch: a page that only answers on
       // the second look still needs its title, headings and schema read, and
@@ -699,9 +705,11 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
   const external = [];
   if (opts.checkExternal !== false && externalLinks.size) {
     const sample = [...externalLinks.entries()].slice(0, opts.maxExternal || 40);
+    let checkedOut = 0;
     for (const [link, froms] of sample) {
       const from = froms[0];
       if (shouldStop && shouldStop()) break;
+      if (onProgress) onProgress(pages.length, pages.length, 'outbound', ++checkedOut, sample.length);
       await throttle();
       try {
         const controller = new AbortController();
@@ -721,12 +729,51 @@ async function crawl(startUrl, options, onProgress, shouldStop, shouldPause) {
     }
   }
 
+  // How deep a page is means how many clicks from the homepage, and that is
+  // only knowable once the whole link graph is in hand: a page fetched early
+  // because the sitemap named it may turn out to be buried five levels down.
+  // Breadth-first over the links actually found gives the true shortest path.
+  assignDepths(pages, linkSources, start.toString());
+
   return {
     pages, robots, origin, linkSources, inboundLinks, nonCanonicalLinks, sitemapUrls, external, flaky,
     externalTotal: externalLinks.size,
     delayMs, finalDelayMs: currentDelay, throttleHits,
     sitemapSeeded: seen.size - 1
   };
+}
+
+// linkSources maps a target to the pages linking at it. Invert that into
+// forward edges, walk out from the homepage, and the first time each URL is
+// reached is its shortest click distance. Anything the walk never reaches was
+// not linked from anywhere crawled — its depth stays unknown rather than being
+// guessed, and the orphan check is what reports it.
+function assignDepths(pages, linkSources, startUrl) {
+  const forward = new Map();
+  for (const [target, sources] of linkSources) {
+    for (const from of sources) {
+      if (!forward.has(from)) forward.set(from, []);
+      forward.get(from).push(target);
+    }
+  }
+  const depth = new Map([[startUrl, 0]]);
+  let frontier = [startUrl];
+  let level = 0;
+  while (frontier.length) {
+    const next = [];
+    level++;
+    for (const url of frontier) {
+      for (const target of forward.get(url) || []) {
+        if (depth.has(target)) continue;
+        depth.set(target, level);
+        next.push(target);
+      }
+    }
+    frontier = next;
+  }
+  for (const p of pages) {
+    p.depth = depth.has(p.url) ? depth.get(p.url) : null;
+  }
 }
 
 /* ── Turning pages into findings ────────────────────────────────── */
@@ -770,6 +817,8 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
       continue;
     }
     if (p.contentType) continue;   // non-HTML, nothing more to check
+
+    const path = p.url.replace(/^https?:\/\/[^/]+/, '') || '/';
 
     if (new URL(p.url).protocol === 'http:') {
       add('notHttps', p.url, 'served over HTTP', 'Serve this URL over https:// and 301 the http:// version to it.');
@@ -883,7 +932,9 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
         `Both read "${p.h1.slice(0, 60)}". Keep the title keyword-led for search results and rewrite the H1 to read naturally for the visitor.`,
         p.h1.slice(0, 90));
     }
-    if ((p.depth || 0) >= 4) {
+    // A null depth means nothing crawled links here at all, which the orphan
+    // check reports — burying is a different complaint from being unreachable.
+    if (typeof p.depth === 'number' && p.depth >= 4) {
       add('deepPage', p.url, `${p.depth} clicks from the homepage`,
         `${path} sits ${p.depth} clicks deep. Link to it from a hub page or the navigation so it is no more than three from the homepage.`);
     }
@@ -998,7 +1049,10 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
     robots: { found: robots.found, sitemaps: robots.sitemaps, disallowed: robots.disallow.length },
     pages: pages.map(p => ({
       url: p.url, status: p.status, ms: p.ms, words: p.words || 0,
-      title: p.title || '', bytes: p.bytes || 0, error: p.error || ''
+      title: p.title || '', bytes: p.bytes || 0, error: p.error || '',
+      // Clicks from the homepage. null means nothing crawled links here, which
+      // is what the orphan finding reports.
+      depth: typeof p.depth === 'number' ? p.depth : null
     })).sort((a, b) => b.status - a.status || a.url.localeCompare(b.url))
   };
 }

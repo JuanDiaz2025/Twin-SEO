@@ -335,22 +335,40 @@ const PACE = {
 
 function startAudit(startUrl, maxPages, pace) {
   const tuning = PACE[pace] || PACE.normal;
-  audit = {
+  // A replaced crawl keeps running for a while — requests are already in
+  // flight — so tell the outgoing one to stop, and bind every callback below
+  // to *this* job. Writing to the shared `audit` instead would let the old
+  // crawl report its progress, and finally its result, as if it were the new
+  // one: the status flaps between two scans and the wrong report wins.
+  if (audit && audit.state === 'running') audit.stop = true;
+
+  const job = {
     state: 'running', crawled: 0, total: 1, result: null, error: '',
     url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false, paused: false,
+    phase: 'crawling', phaseAt: 0, phaseOf: 0,
     maxPages, pace: pace || 'normal'
   };
-  runAudit(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
-    audit.crawled = done;
-    audit.total = total;
-    audit.lastBeat = Date.now();   // proof of life for the watchdog
-  }, () => audit.stop, () => audit.paused).then(result => {
-    audit.result = result;
-    audit.state = 'done';
-    audit.tookMs = Date.now() - audit.startedAt;
+  audit = job;
+
+  const current = () => audit === job;
+
+  runAudit(startUrl, Object.assign({ maxPages }, tuning), (done, total, phase, at, of) => {
+    if (!current()) return;
+    job.crawled = done;
+    job.total = total;
+    job.phase = phase || 'crawling';
+    job.phaseAt = at || 0;
+    job.phaseOf = of || 0;
+    job.lastBeat = Date.now();   // proof of life for the watchdog
+  }, () => job.stop, () => job.paused).then(result => {
+    if (!current()) return;
+    job.result = result;
+    job.state = 'done';
+    job.tookMs = Date.now() - job.startedAt;
   }).catch(err => {
-    audit.error = err.message || 'The crawl failed.';
-    audit.state = 'error';
+    if (!current()) return;
+    job.error = err.message || 'The crawl failed.';
+    job.state = 'error';
   });
 }
 
@@ -497,21 +515,37 @@ let aiScan = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url
 
 function startAiScan(startUrl, maxPages, pace) {
   const tuning = PACE[pace] || PACE.normal;
-  aiScan = {
+  // Same reasoning as startAudit: the outgoing scan is still winding down, so
+  // stop it and keep its callbacks pointed at its own job rather than at
+  // whatever is current by the time they fire.
+  if (aiScan && aiScan.state === 'running') aiScan.stop = true;
+
+  const job = {
     state: 'running', crawled: 0, total: 1, result: null, error: '',
-    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false, paused: false
+    url: startUrl, startedAt: Date.now(), lastBeat: Date.now(), stop: false, paused: false,
+    phase: 'crawling', phaseAt: 0, phaseOf: 0
   };
-  runAiScan(startUrl, Object.assign({ maxPages }, tuning), (done, total) => {
-    aiScan.crawled = done;
-    aiScan.total = total;
-    aiScan.lastBeat = Date.now();
-  }, () => aiScan.stop, () => aiScan.paused).then(result => {
-    aiScan.result = result;
-    aiScan.state = 'done';
-    aiScan.tookMs = Date.now() - aiScan.startedAt;
+  aiScan = job;
+
+  const current = () => aiScan === job;
+
+  runAiScan(startUrl, Object.assign({ maxPages }, tuning), (done, total, phase, at, of) => {
+    if (!current()) return;
+    job.crawled = done;
+    job.total = total;
+    job.phase = phase || 'crawling';
+    job.phaseAt = at || 0;
+    job.phaseOf = of || 0;
+    job.lastBeat = Date.now();
+  }, () => job.stop, () => job.paused).then(result => {
+    if (!current()) return;
+    job.result = result;
+    job.state = 'done';
+    job.tookMs = Date.now() - job.startedAt;
   }).catch(err => {
-    aiScan.error = err.message || 'The scan failed.';
-    aiScan.state = 'error';
+    if (!current()) return;
+    job.error = err.message || 'The scan failed.';
+    job.state = 'error';
   });
 }
 
@@ -819,6 +853,9 @@ const server = http.createServer(async (req, res) => {
         error: aiScan.error, elapsedMs: aiScan.startedAt ? Date.now() - aiScan.startedAt : 0,
         stopping: Boolean(aiScan.stop && aiScan.state === 'running'),
         paused: Boolean(aiScan.paused && aiScan.state === 'running'),
+        phase: aiScan.phase || 'crawling',
+        phaseAt: aiScan.phaseAt || 0,
+        phaseOf: aiScan.phaseOf || 0,
         tookMs: aiScan.tookMs || 0,
         result: aiScan.state === 'done' ? aiScan.result : null
       });
@@ -856,6 +893,9 @@ const server = http.createServer(async (req, res) => {
         elapsedMs: audit.startedAt ? Date.now() - audit.startedAt : 0,
         stopping: Boolean(audit.stop && audit.state === 'running'),
         paused: Boolean(audit.paused && audit.state === 'running'),
+        phase: audit.phase || 'crawling',
+        phaseAt: audit.phaseAt || 0,
+        phaseOf: audit.phaseOf || 0,
         tookMs: audit.tookMs || 0,
         result: audit.state === 'done' ? audit.result : null
       });
