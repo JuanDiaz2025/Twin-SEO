@@ -37,6 +37,10 @@ const DASHBOARD = path.join(ROOT, 'dashboard', 'index.html');
 const DATA_DIR = path.join(BASE, '.data');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const TOKEN_FILE = path.join(DATA_DIR, 'tokens.json');
+// The last scan of each kind, kept on disk. Without this the dashboard forgets
+// every scan the moment the app closes, and shows "not run" over results that
+// were gathered five minutes earlier.
+const SCANS_FILE = path.join(DATA_DIR, 'scans.json');
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -261,6 +265,106 @@ async function gscReport(days, dim) {
   };
 }
 
+/* ── Rankings, measured rather than estimated ───────────────────
+   Semrush estimates where a site ranks by sampling the SERP. Search
+   Console reports where it actually ranked, for every query that drew
+   an impression — so once GSC is connected the estimate is the weaker
+   number. This builds the position distribution and the real movement
+   between two consecutive windows.
+
+   It is as live as the source allows, and no faster: Google publishes
+   Search Console data on roughly a two-day delay, one row per day.
+   Nothing gives a true up-to-the-second rank, including Semrush.
+   ─────────────────────────────────────────────────────────────── */
+const BUCKETS = [
+  { key: 'top3',   label: 'Top 3',  test: p => p <= 3 },
+  { key: 'p4_10',  label: '4–10',   test: p => p > 3 && p <= 10 },
+  { key: 'p11_20', label: '11–20',  test: p => p > 10 && p <= 20 },
+  { key: 'p21_50', label: '21–50',  test: p => p > 20 && p <= 50 },
+  { key: 'p51',    label: '51–100', test: p => p > 50 }
+];
+
+async function gscRankings(days) {
+  const cfg = loadConfig();
+  if (!cfg.gscSite) throw new Error('No Search Console property set.');
+  const endpoint = 'https://searchconsole.googleapis.com/webmasters/v3/sites/' +
+    encodeURIComponent(cfg.gscSite) + '/searchAnalytics/query';
+
+  // Two windows of the same length, back to back. Comparing them is what makes
+  // "improved" and "declined" a measurement instead of a guess.
+  const windows = {
+    current:  { startDate: dayOffset(-(days + 2)),      endDate: dayOffset(-2) },
+    previous: { startDate: dayOffset(-(days * 2 + 2)),  endDate: dayOffset(-(days + 3)) }
+  };
+  const ask = range => google(endpoint, Object.assign({
+    dimensions: ['query'], rowLimit: 5000, type: 'web'
+  }, range));
+
+  const [now, before] = await Promise.all([ask(windows.current), ask(windows.previous)]);
+
+  const rows = (now.rows || []).map(r => ({
+    query: r.keys[0],
+    clicks: r.clicks,
+    impressions: r.impressions,
+    ctr: (r.ctr || 0) * 100,
+    position: r.position
+  }));
+
+  const priorPos = new Map();
+  (before.rows || []).forEach(r => priorPos.set(r.keys[0], r.position));
+
+  const distribution = {};
+  BUCKETS.forEach(b => { distribution[b.key] = 0; });
+  rows.forEach(r => {
+    const bucket = BUCKETS.find(b => b.test(r.position));
+    if (bucket) distribution[bucket.key]++;
+  });
+
+  // Movement per query. A lower position number is a better rank, so an
+  // improvement is a fall in the number — easy to invert by accident.
+  let improved = 0, declined = 0, unchanged = 0;
+  const movers = [];
+  rows.forEach(r => {
+    const was = priorPos.get(r.query);
+    if (was === undefined) return;             // new this period, not a move
+    const delta = was - r.position;            // positive = climbed
+    if (delta >= 1) improved++;
+    else if (delta <= -1) declined++;
+    else unchanged++;
+    if (Math.abs(delta) >= 1) {
+      movers.push({ query: r.query, from: was, to: r.position, delta, clicks: r.clicks, impressions: r.impressions });
+    }
+  });
+  movers.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.impressions - a.impressions);
+
+  const newQueries = rows.filter(r => !priorPos.has(r.query)).length;
+  const lost = (before.rows || []).filter(r => !rows.some(x => x.query === r.keys[0])).length;
+
+  // Visibility: the share of impressions that landed on page one. Semrush's
+  // own visibility index is a different formula, so this is labelled for what
+  // it is rather than dressed up as the same number.
+  const totalImp = rows.reduce((n, r) => n + r.impressions, 0);
+  const page1Imp = rows.filter(r => r.position <= 10).reduce((n, r) => n + r.impressions, 0);
+
+  return {
+    property: cfg.gscSite,
+    days,
+    window: windows.current,
+    keywords: rows.length,
+    distribution,
+    buckets: BUCKETS.map(b => ({ key: b.key, label: b.label, count: distribution[b.key] })),
+    top10: distribution.top3 + distribution.p4_10,
+    improved,
+    declined,
+    unchanged,
+    newQueries,
+    lost,
+    movers: movers.slice(0, 25),
+    page1Share: totalImp ? (page1Imp / totalImp) * 100 : 0,
+    topQueries: rows.slice().sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 10)
+  };
+}
+
 async function ga4Report(days, dim) {
   const cfg = loadConfig();
   if (!cfg.ga4Property) {
@@ -365,6 +469,7 @@ function startAudit(startUrl, maxPages, pace) {
     job.result = result;
     job.state = 'done';
     job.tookMs = Date.now() - job.startedAt;
+    rememberScan('siteAudit', summariseAudit(result, job));
   }).catch(err => {
     if (!current()) return;
     job.error = err.message || 'The crawl failed.';
@@ -542,6 +647,7 @@ function startAiScan(startUrl, maxPages, pace) {
     job.result = result;
     job.state = 'done';
     job.tookMs = Date.now() - job.startedAt;
+    rememberScan('aiSearch', summariseAi(result, job));
   }).catch(err => {
     if (!current()) return;
     job.error = err.message || 'The scan failed.';
@@ -601,6 +707,8 @@ async function dashboardData(days) {
       };
     }),
 
+    attempt('rankings', async () => gscRankings(days)),
+
     attempt('analytics', async () => {
       if (!cfg.ga4Property) throw new Error('No GA4 property set.');
       const r = await ga4Report(days, 'landing');
@@ -617,38 +725,59 @@ async function dashboardData(days) {
     })
   ]);
 
-  // These come from scans this app ran itself, so they are already local.
-  if (audit.state === 'done' && audit.result) {
-    out.siteAudit = {
-      health: audit.result.health,
-      counts: audit.result.counts,
-      crawled: audit.result.crawled,
-      ranAt: audit.startedAt
-    };
-    out.sources.siteAudit = 'live';
-  } else {
-    out.siteAudit = null;
-    out.sources.siteAudit = 'not run';
-  }
+  // Scans this app ran itself. The in-memory run wins when there is one;
+  // otherwise the last one saved to disk, so closing the app does not throw
+  // away a scan that took twenty minutes.
+  const remembered = readJson(SCANS_FILE, {});
 
-  if (aiScan.state === 'done' && aiScan.result) {
-    const bots = aiScan.result.access.bots;
-    out.aiSearch = {
-      score: aiScan.result.score,
-      allowed: bots.filter(b => b.state !== 'blocked').length,
-      total: bots.length,
-      withSchema: aiScan.result.entity.withSchema,
-      pages: aiScan.result.pagesAnalysed,
-      questionShare: aiScan.result.entity.questionShare,
-      ranAt: aiScan.startedAt
-    };
-    out.sources.aiSearch = 'live';
-  } else {
-    out.aiSearch = null;
-    out.sources.aiSearch = 'not run';
-  }
+  out.siteAudit = (audit.state === 'done' && audit.result)
+    ? summariseAudit(audit.result, audit)
+    : (remembered.siteAudit || null);
+  out.sources.siteAudit = out.siteAudit ? 'live' : 'not run';
+
+  out.aiSearch = (aiScan.state === 'done' && aiScan.result)
+    ? summariseAi(aiScan.result, aiScan)
+    : (remembered.aiSearch || null);
+  out.sources.aiSearch = out.aiSearch ? 'live' : 'not run';
 
   return out;
+}
+
+function summariseAudit(result, job) {
+  return {
+    health: result.health,
+    counts: result.counts,
+    crawled: result.crawled,
+    url: job.url,
+    broken: result.linkReport ? result.linkReport.totals.broken : 0,
+    notFound: result.linkReport ? result.linkReport.totals.notFound : 0,
+    serverError: result.linkReport ? result.linkReport.totals.serverError : 0,
+    ranAt: job.startedAt
+  };
+}
+
+function summariseAi(result, job) {
+  const bots = result.access.bots;
+  return {
+    score: result.score,
+    allowed: bots.filter(b => b.state !== 'blocked').length,
+    total: bots.length,
+    withSchema: result.entity.withSchema,
+    pages: result.pagesAnalysed,
+    questionShare: result.entity.questionShare,
+    url: job.url,
+    ranAt: job.startedAt
+  };
+}
+
+// Written after each completed scan. Summaries only — a full crawl of a
+// thousand pages is megabytes, and the dashboard needs the headline figures.
+function rememberScan(kind, summary) {
+  try {
+    const all = readJson(SCANS_FILE, {});
+    all[kind] = summary;
+    writeJson(SCANS_FILE, all);
+  } catch (e) { /* a scan is still valid even if it cannot be cached */ }
 }
 
 /* ── HTTP plumbing ──────────────────────────────────────────── */

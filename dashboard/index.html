@@ -2312,6 +2312,10 @@
     delete stash[id];
     renderTray();
     renderCharts();
+    // A parked widget still holds the placeholder numbers it was authored
+    // with. Re-applying the last feed fills it in, otherwise restoring
+    // Position Tracking shows figures from the mock-up.
+    if (lastLiveFeed) applyLiveDashboard(lastLiveFeed);
     flash(s.node);
   }
 
@@ -4067,6 +4071,10 @@
         say('auditOut', (s.result.stopped ? 'Stopped — ' : 'Finished — ') + s.result.crawled +
           ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', s.result.stopped ? 'warn' : 'ok');
         renderAudit(s.result, s.tookMs);
+        // The Site Audit widget on the dashboard is fed by this scan, so put
+        // the new health there now rather than leaving yesterday's figure up
+        // until the next poll.
+        refreshLiveDashboard(true);
       }
     }).catch(function (e) {
       resetAuditControls();
@@ -4271,6 +4279,7 @@
         say('aiOut', 'Checked ' + s.result.pagesAnalysed + ' pages in ' + (s.tookMs / 1000).toFixed(1) + 's.', 'ok');
         if (s.url) $('aiUrl').value = s.url;
         renderAi(s.result, s.tookMs);
+        refreshLiveDashboard(true);
       }
     }).catch(function (e) {
       resetAiControls();
@@ -4393,8 +4402,12 @@
     return false;
   }
 
+  // Kept so a widget restored from the tray can be filled in immediately.
+  var lastLiveFeed = null;
+
   function applyLiveDashboard(d) {
     var touched = [];
+    lastLiveFeed = d;
 
     // Real Semrush figures from the export. Google's live numbers, applied
     // below, take precedence where they measure the same thing.
@@ -4475,6 +4488,100 @@
       }
     }
 
+    // Rankings measured by Search Console. Semrush estimates where the site
+    // ranks by sampling the SERP; this is where it actually ranked, for every
+    // query that drew an impression. So it replaces the export rather than
+    // sitting beside it.
+    if (d.rankings && d.rankings.keywords) {
+      var k = d.rankings;
+      var rankW = $('w-rankings');
+      if (rankW) {
+        var rhost = rankW.querySelector('.w-body');
+        if (rhost) {
+          rhost.innerHTML =
+            '<span class="eyebrow">Keywords by position · Search Console, last ' + k.days + ' days</span>' +
+            '<div class="dist" style="margin-top:8px"></div>' +
+            '<div class="divider" style="margin:14px 0 10px"></div>' +
+            '<span class="eyebrow">Biggest moves against the previous ' + k.days + ' days</span>' +
+            '<div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>' +
+            '<p class="field-hint" style="margin:10px 0 0"></p>';
+
+          var rmax = Math.max.apply(null, k.buckets.map(function (b) { return b.count; })) || 1;
+          var rdist = rhost.querySelector('.dist');
+          k.buckets.forEach(function (b, i) {
+            var row = document.createElement('div');
+            row.className = 'dist-row';
+            row.innerHTML = '<span class="band"></span>' +
+              '<span class="dist-track"><span class="dist-fill"></span></span>' +
+              '<span class="pct num"></span><span class="ct num"></span>';
+            row.children[0].textContent = b.label;
+            row.children[1].firstChild.style.width = Math.max(2, b.count / rmax * 100) + '%';
+            row.children[1].firstChild.style.background = css('--r' + (i + 1));
+            row.children[2].textContent = Math.round(b.count / k.keywords * 100) + '%';
+            row.children[3].textContent = b.count;
+            rdist.appendChild(row);
+          });
+
+          renderTable(rhost.querySelector('table'), [
+            { key: 'query', label: 'Query' },
+            { key: 'from', label: 'Was', fmt: fmtPos },
+            { key: 'to', label: 'Now', fmt: fmtPos },
+            { key: 'delta', label: 'Move', fmt: function (v) {
+              // A climb is a fall in the position number, so the sign is
+              // flipped for display or every improvement reads as a loss.
+              return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1);
+            } },
+            { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+          ], k.movers.slice(0, 8), 'No query moved by a full position this period.', true);
+
+          // Colour the move column: climbing is good, slipping is not.
+          rhost.querySelectorAll('tbody tr').forEach(function (tr, i) {
+            var cell = tr.children[3];
+            var mover = k.movers[i];
+            if (!cell || !mover) return;
+            cell.style.color = mover.delta > 0 ? 'var(--good-text)' : 'var(--critical-text)';
+            cell.style.fontWeight = '600';
+          });
+
+          rhost.querySelector('.field-hint').textContent =
+            k.improved + ' improved · ' + k.declined + ' declined · ' + k.newQueries +
+            ' new · ' + k.lost + ' dropped out. Search Console publishes two days behind, so the ' +
+            'window ends ' + k.window.endDate + '.';
+        }
+        // The chips were transcribed from the Semrush screenshot — root
+        // domain, United States, Desktop. Search Console reports every device
+        // and country together, so leaving them up would misdescribe the data
+        // underneath them.
+        var chipRow = rankW.querySelectorAll('.w-head')[1];
+        if (chipRow) {
+          chipRow.innerHTML = '<span class="chip"></span><span class="chip"></span><span class="chip"></span>';
+          chipRow.children[0].textContent = k.property.replace(/^sc-domain:/, '');
+          chipRow.children[1].textContent = 'All devices';
+          chipRow.children[2].textContent = k.window.startDate + ' → ' + k.window.endDate;
+        }
+        var period = rankW.querySelector('.w-tools .chip');
+        if (period) period.textContent = 'Last ' + k.days + ' days';
+
+        markLive('w-rankings', d.fetchedAt);
+        var ktag = rankW.querySelector('.live-tag');
+        if (ktag) { ktag.textContent = 'SEARCH CONSOLE'; ktag.style.background = ''; }
+        touched.push('Organic Rankings');
+      }
+
+      // Position Tracking was three invented numbers. All three are real now —
+      // when the widget is on screen; it starts parked in the hidden tray.
+      if ($('w-position')) {
+        setMetric('w-position', 'Visibility', k.page1Share.toFixed(1) + '%', 'impressions on page one');
+        setMetric('w-position', 'Tracked keywords', fmtInt(k.keywords), 'queries with impressions');
+        setMetric('w-position', 'Top 10', fmtInt(k.top10));
+        markLive('w-position', d.fetchedAt);
+        touched.push('Position Tracking');
+      }
+
+      setMetric('w-seo', 'Organic Keywords', fmtInt(k.keywords),
+        k.distribution.top3 + ' in the top 3 · Search Console');
+    }
+
     if (d.analytics) {
       var a = d.analytics;
       var replaceEmpty = function (id, rows) {
@@ -4538,15 +4645,19 @@
     return touched;
   }
 
-  function refreshLiveDashboard() {
+  function refreshLiveDashboard(quiet) {
     if (!SERVER) {
-      say('liveOut', 'Live data comes from the Twin SEO app. Run it to see real numbers here.', 'err');
+      if (!quiet) say('liveOut', 'Live data comes from the Twin SEO app. Run it to see real numbers here.', 'err');
       return;
     }
     var btn = $('btnLive');
-    btn.disabled = true;
-    btn.textContent = 'Refreshing…';
-    say('liveOut', 'Pulling from every connected source…');
+    // A background refresh must not steal the button or shout in the status
+    // line — the user may be reading a widget when it fires.
+    if (!quiet) {
+      btn.disabled = true;
+      btn.textContent = 'Refreshing…';
+      say('liveOut', 'Pulling from every connected source…');
+    }
     srv('/api/dashboard?days=28', null, 90000).then(function (d) {
       var touched = applyLiveDashboard(d);
       // An export is applied data, not something still waiting to be wired.
@@ -4560,17 +4671,48 @@
           'Live as of ' + new Date(d.fetchedAt).toLocaleTimeString() + ' — ' + touched.join(', ') +
           (missing.length ? '. Still on snapshot: ' + missing.join(', ') + '.' : '.')));
       }
-      say('liveOut', touched.length
-        ? touched.length + ' widget' + (touched.length === 1 ? '' : 's') + ' updated'
-        : 'Nothing connected yet — see the notes below.', touched.length ? 'ok' : 'err');
-      if (d.notes && d.notes.length) {
-        d.notes.forEach(function (n) { toast(n.source + ': ' + n.reason); });
+      if (!quiet) {
+        say('liveOut', touched.length
+          ? touched.length + ' widget' + (touched.length === 1 ? '' : 's') + ' updated'
+          : 'Nothing connected yet — see the notes below.', touched.length ? 'ok' : 'err');
+        // Only on a deliberate refresh. A background pull that toasts every
+        // unconnected source every few minutes is an alarm, not information.
+        if (d.notes && d.notes.length) {
+          d.notes.forEach(function (n) { toast(n.source + ': ' + n.reason); });
+        }
       }
     }).catch(function (e) {
-      say('liveOut', e.message, 'err');
+      if (!quiet) say('liveOut', e.message, 'err');
     }).then(function () {
-      btn.disabled = false;
-      btn.textContent = 'Refresh live data';
+      if (!quiet) {
+        btn.disabled = false;
+        btn.textContent = 'Refresh live data';
+      }
+    });
+  }
+
+  /* ── Keeping the dashboard current ────────────────────────────
+     Search Console publishes about two days behind and GA4 within a
+     few hours, so polling faster than a few minutes only spends quota.
+     What this really buys is that a scan finishing, or the app being
+     left open overnight, shows up without anyone pressing a button.
+     ─────────────────────────────────────────────────────────────── */
+  var LIVE_EVERY_MS = 5 * 60 * 1000;
+  var liveTimer = null;
+
+  function startLiveRefresh() {
+    if (!SERVER || liveTimer) return;
+    refreshLiveDashboard(true);
+    liveTimer = setInterval(function () {
+      // Pointless while the tab is in the background, and it would pile up
+      // requests on a laptop that has been asleep.
+      if (document.hidden) return;
+      if (!$('view-dashboard').hidden) refreshLiveDashboard(true);
+    }, LIVE_EVERY_MS);
+
+    // Coming back to the tab after a while, the numbers on screen are stale.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && !$('view-dashboard').hidden) refreshLiveDashboard(true);
     });
   }
 
@@ -4716,7 +4858,10 @@
   wireConnections();
   wireAudit();
   wireAiSearch();
-  if ($('btnLive')) $('btnLive').addEventListener('click', refreshLiveDashboard);
+  // The click handler receives an event object, which would arrive as `quiet`
+  // and silence the very refresh the user asked for.
+  if ($('btnLive')) $('btnLive').addEventListener('click', function () { refreshLiveDashboard(false); });
+  startLiveRefresh();
   (function seedAuditUrl() {
     var f = $('auditUrl');
     if (!f) return;
