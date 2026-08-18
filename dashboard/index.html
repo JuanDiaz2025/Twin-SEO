@@ -334,6 +334,19 @@
   }
   .btn-primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
 
+  /* The app disables buttons while a scan or a test is running. Without this
+     they stay fully lit and keep their hover, so a control that is refusing
+     clicks looks identical to one that is not — which reads as broken. */
+  button[disabled], .btn[disabled] {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+  .btn[disabled]:hover {
+    border-color: var(--hairline);
+    background: var(--surface);
+  }
+  .btn-primary[disabled]:hover { background: var(--accent); border-color: var(--accent); }
+
   .snapshot-strip {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 8px 22px;
@@ -1545,6 +1558,11 @@
               </select>
               <span class="field-hint">Paced the same way as Site Audit, and it backs off if your server asks. Above 25 pages the sitemap is read too, so pages nothing links to are still checked.</span>
             </div>
+            <div class="field">
+              <label>Estimated time</label>
+              <span class="code" id="aiEta" style="padding:8px 10px;display:block">about 10 seconds</span>
+              <span class="field-hint">At the same pace as a Normal site audit. A whole-site pass is a long job — it can be paused and resumed.</span>
+            </div>
           </div>
           <div class="actions" style="margin-top:14px">
             <button class="btn btn-primary" id="aiRun">Check AI readiness</button>
@@ -2311,6 +2329,13 @@
   function renderTray() {
     tray.innerHTML = '';
     var ids = Object.keys(stash);
+    // Restore all is a no-op with an empty tray, and a live-looking button that
+    // does nothing reads as broken. Let it look unavailable instead.
+    var all = document.getElementById('restoreAll');
+    if (all) {
+      all.disabled = !ids.length;
+      all.title = ids.length ? 'Put every hidden widget back' : 'Nothing is hidden';
+    }
     if (!ids.length) {
       var p = document.createElement('span');
       p.className = 'tray-empty';
@@ -2572,9 +2597,14 @@
 
   /* ── Small helpers ────────────────────────────────────────── */
   function $(id) { return document.getElementById(id); }
-  function fmtInt(n) { return Math.round(n).toLocaleString('en-US'); }
-  function fmtPct(n, d) { return (n).toFixed(d == null ? 2 : d) + '%'; }
-  function fmtPos(n) { return n.toFixed(1); }
+  // Every one of these is handed values straight off an API response. A field
+  // that is missing, null, or not a number must show as unknown — calling
+  // toFixed on undefined throws, and it throws in the middle of building a
+  // table, so one absent field used to take the whole view down.
+  function isNum(n) { return typeof n === 'number' && isFinite(n); }
+  function fmtInt(n) { return isNum(n) ? Math.round(n).toLocaleString('en-US') : '—'; }
+  function fmtPct(n, d) { return isNum(n) ? n.toFixed(d == null ? 2 : d) + '%' : '—'; }
+  function fmtPos(n) { return isNum(n) ? n.toFixed(1) : '—'; }
   function dayOffset(n) {
     var d = new Date(); d.setDate(d.getDate() + n);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -2931,7 +2961,9 @@
     var showSample = $('gscSample').checked;
     var d = showSample ? gscSample(parseInt($('gscRange').value, 10)) : gsc.data;
     $('gscFlag').hidden = !(d && d.sample);
-    if (!d) {
+    // A response that arrived but carries no totals is as unusable as no
+    // response at all — and reading through it took the whole view down.
+    if (!d || !d.totals) {
       $('gscKpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0;grid-column:1/-1">' +
         'Nothing loaded. Tick “Show sample data” to preview the layout, or connect Google and ' +
         'press Fetch from API for live figures.</p>';
@@ -3118,7 +3150,7 @@
     var showSample = $('ga4Sample').checked;
     var d = showSample ? ga4Sample(parseInt($('ga4Range').value, 10)) : ga4.data;
     $('ga4Flag').hidden = !(d && d.sample);
-    if (!d) {
+    if (!d || !d.totals) {
       $('ga4Kpis').innerHTML = '<p style="color:var(--ink-2);font-size:12.5px;margin:0;grid-column:1/-1">' +
         'Nothing loaded. Tick “Show sample data” to preview the layout, or connect Google and ' +
         'press Fetch from API for live figures.</p>';
@@ -4459,6 +4491,15 @@
   function wireAiSearch() {
     var runBtn = $('aiRun');
     if (!runBtn) return;
+
+    // The scan always runs at the Normal pace, so the estimate uses that rate.
+    // Without it, picking 1000 pages gives no hint that it is a long job.
+    function updateAiEta() {
+      var el = $('aiEta');
+      if (el) el.textContent = humanDuration(Number($('aiMax').value) / PACE_RATE.normal);
+    }
+    $('aiMax').addEventListener('change', updateAiEta);
+    updateAiEta();
 
     $('aiPause').addEventListener('click', function () {
       var next = !aiPaused;
