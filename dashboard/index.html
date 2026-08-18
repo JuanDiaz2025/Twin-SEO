@@ -1800,6 +1800,41 @@
 
           <section class="w">
             <div class="w-head">
+              <h3>Semrush</h3>
+              <span class="info" title="The only source for backlinks — Search Console has no API for its Links report.">i</span>
+              <div class="w-tools"><span class="status-pill" id="semrushPill"><i></i>No key</span></div>
+            </div>
+            <div class="w-body">
+              <p class="field-hint" style="margin:0 0 12px;max-width:70ch">
+                Backlinks are the one thing Google will not hand over. Search Console shows a Links report in its
+                own interface but publishes no API for it, so the property connected above cannot supply them.
+                A Semrush API key fills in Authority Score, backlinks and referring domains.
+              </p>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="fSemrushKey">Semrush API key</label>
+                  <input class="input" id="fSemrushKey" type="password" spellcheck="false" autocomplete="off"
+                         placeholder="user-abcdef0123456789abcdef0123456789">
+                  <span class="field-hint">Semrush → your profile → Subscription Info → API units. Only the server sees this;
+                  it is stored in <code>.data/config.json</code> on this machine and never sent to the browser.</span>
+                  <span class="field-hint" id="semrushKeyOut"></span>
+                </div>
+                <div class="field">
+                  <label>What it costs</label>
+                  <span class="field-hint">API units are a paid add-on to the Semrush subscription, separate from the seat.
+                  Each dashboard refresh spends units on three reports — overview, referring domains, and recent links —
+                  for the domain set in Search Console above.</span>
+                </div>
+              </div>
+              <div class="actions" style="margin-top:14px">
+                <button class="btn" id="btnTestSemrush">Test connection</button>
+                <span class="field-hint" id="semrushTestOut"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
               <h3>Service account <span style="font-weight:400;color:var(--ink-3)">— for the phase 2 backend</span></h3>
             </div>
             <div class="w-body">
@@ -3249,6 +3284,49 @@
     say('clientIdOut', problem, problem ? 'err' : '');
   }
 
+  function refreshSemrushPill() {
+    var pill = $('semrushPill');
+    if (!pill) return;
+    if (!SERVER) {
+      setPill(pill, 'off', 'App only');
+      say('semrushKeyOut', 'The key is held by the app, never by this page.');
+      return;
+    }
+    if (serverStatus && serverStatus.hasSemrushKey) {
+      setPill(pill, 'ok', 'Key saved');
+      say('semrushKeyOut', 'A key is stored. Typing a new one replaces it; leaving the box empty keeps it.');
+    } else {
+      setPill(pill, 'off', 'No key');
+      say('semrushKeyOut', 'Without a key, Authority Score, backlinks and referring domains stay on the ' +
+        'Aug 11 export. Nothing else on the dashboard is affected.');
+    }
+  }
+
+  function wireSemrush() {
+    var btn = $('btnTestSemrush');
+    if (!btn) return;
+    var field = $('fSemrushKey');
+    // Save on blur, like the other credential fields, so a key typed and then
+    // tested is the key the server actually has.
+    if (field) field.addEventListener('blur', function () { if (field.value.trim()) persistSettings(); });
+
+    btn.addEventListener('click', function () {
+      if (!SERVER) { say('semrushTestOut', 'Run the Twin SEO app to test this.', 'err'); return; }
+      btn.disabled = true;
+      say('semrushTestOut', 'Asking Semrush…');
+      persistSettings().then(function () {
+        return srv('/api/semrush/test', null, 40000);
+      }).then(function (r) {
+        say('semrushTestOut', 'Connected — ' + r.target + ': Authority ' + r.authority + ', ' +
+          fmtInt(r.backlinks) + ' backlinks from ' + fmtInt(r.referringDomains) + ' domains.', 'ok');
+        refreshServerStatus().then(refreshSemrushPill);
+        refreshLiveDashboard(true);
+      }).catch(function (e) {
+        say('semrushTestOut', e.message, 'err');
+      }).then(function () { btn.disabled = false; });
+    });
+  }
+
   function refreshTokenPill() {
     if (SERVER) {
       if (serverStatus && serverStatus.connected) {
@@ -3321,9 +3399,14 @@
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement
       };
+      // Secrets are only sent when actually typed, so a blank field never
+      // wipes a key that is already stored on the server.
       var secretField = $('fClientSecret');
       var secret = secretField ? secretField.value.trim() : '';
       if (secret) payload.clientSecret = secret;
+      var semrushField = $('fSemrushKey');
+      var semrushKey = semrushField ? semrushField.value.trim() : '';
+      if (semrushKey) payload.semrushKey = semrushKey;
       return srv('/api/settings', payload).then(function () {
         return refreshServerStatus();
       });
@@ -4582,6 +4665,73 @@
         k.distribution.top3 + ' in the top 3 · Search Console');
     }
 
+    // Backlinks, the one figure Google will not supply. Search Console's Links
+    // report is web-interface only, so this is Semrush or nothing.
+    if (d.backlinks && d.backlinks.referringDomains !== undefined) {
+      var bl = d.backlinks;
+      setMetric('w-seo', 'Authority Score', String(bl.authority), 'Semrush, live');
+      setMetric('w-seo', 'Backlinks', fmtInt(bl.backlinks), fmtInt(bl.referringIps) + ' referring IPs');
+      setMetric('w-seo', 'Referring Domains', fmtInt(bl.referringDomains),
+        Math.round(bl.followShare) + '% follow');
+
+      var blw = $('w-backlinks');
+      if (blw) {
+        var bhost = blw.querySelector('.w-body');
+        if (bhost) {
+          bhost.innerHTML =
+            '<div class="metrics metrics-3"></div>' +
+            '<div class="divider" style="margin:14px 0 10px"></div>' +
+            '<span class="eyebrow">Referring domains by authority score</span>' +
+            '<div class="dist" style="margin-top:8px"></div>' +
+            '<p class="field-hint" style="margin:8px 0 0"></p>' +
+            '<div class="divider" style="margin:14px 0 10px"></div>' +
+            '<span class="eyebrow">Strongest referring domains</span>' +
+            '<div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>';
+
+          renderKpis(bhost.querySelector('.metrics'), [
+            { key: 'b', label: 'Backlinks', value: fmtInt(bl.backlinks) },
+            { key: 'd', label: 'Referring domains', value: fmtInt(bl.referringDomains) },
+            { key: 'f', label: 'Follow links', value: Math.round(bl.followShare) + '%' }
+          ], null, function () {});
+
+          var bmax = Math.max.apply(null, bl.bands.map(function (b) { return b.count; })) || 1;
+          var bdist = bhost.querySelector('.dist');
+          bl.bands.forEach(function (b, i) {
+            var row = document.createElement('div');
+            row.className = 'dist-row';
+            row.innerHTML = '<span class="band"></span>' +
+              '<span class="dist-track"><span class="dist-fill"></span></span>' +
+              '<span class="pct num"></span><span class="ct num"></span>';
+            row.children[0].textContent = b.label;
+            row.children[1].firstChild.style.width = Math.max(2, b.count / bmax * 100) + '%';
+            row.children[1].firstChild.style.background = css('--r' + (5 - i));
+            row.children[2].textContent = bl.bandsFrom
+              ? Math.round(b.count / bl.bandsFrom * 100) + '%' : '0%';
+            row.children[3].textContent = b.count;
+            bdist.appendChild(row);
+          });
+
+          // The banding is over the sampled domains, not all of them. Saying
+          // so stops the chart being read as the whole link profile.
+          bhost.querySelector('.field-hint').textContent =
+            bl.bandsFrom < bl.referringDomains
+              ? 'Banded from the ' + bl.bandsFrom + ' domains sending the most links, of ' +
+                fmtInt(bl.referringDomains) + ' in total.'
+              : 'All ' + fmtInt(bl.referringDomains) + ' referring domains.';
+
+          renderTable(bhost.querySelector('table'), [
+            { key: 'domain', label: 'Domain' },
+            { key: 'authority', label: 'AS' },
+            { key: 'backlinks', label: 'Links', fmt: fmtInt }
+          ], bl.topDomains, 'Semrush reports no referring domains yet.');
+        }
+        markLive('w-backlinks', d.fetchedAt);
+        var btag = blw.querySelector('.live-tag');
+        if (btag) { btag.textContent = 'SEMRUSH'; btag.style.background = 'var(--accent)'; }
+        touched.push('Backlinks');
+      }
+    }
+
     if (d.analytics) {
       var a = d.analytics;
       var replaceEmpty = function (id, rows) {
@@ -4845,6 +4995,7 @@
 
   if (SERVER) {
     refreshServerStatus().then(function () {
+      refreshSemrushPill();
       fillForm();
       gscRefreshChrome();
       ga4RefreshChrome();
@@ -4856,6 +5007,7 @@
   }
 
   wireConnections();
+  wireSemrush();
   wireAudit();
   wireAiSearch();
   // The click handler receives an event object, which would arrive as `quiet`

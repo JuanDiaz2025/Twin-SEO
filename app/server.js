@@ -97,6 +97,7 @@ function loadConfig() {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
     psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || defaults.psiKey || '',
+    semrushKey: process.env.SEMRUSH_API_KEY || stored.semrushKey || defaults.semrushKey || '',
     ga4Measurement: stored.ga4Measurement || '',
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, '')
   };
@@ -612,7 +613,174 @@ function shapePsi(data, strategy, url) {
   };
 }
 
-module.exports = { shapePsi };
+/* ── Semrush Analytics API ──────────────────────────────────────
+   Backlinks are the one thing Google will not give us. Search Console
+   shows a Links report in its web interface but publishes no API for
+   it, so the property already connected cannot supply them. Semrush
+   can, and this is the client for it.
+
+   The API answers in semicolon-separated CSV, not JSON, and reports
+   failures as a plain-text "ERROR nn :: reason" body with HTTP 200 —
+   so a naive read treats an error as a single malformed row.
+   ─────────────────────────────────────────────────────────────── */
+const SEMRUSH_API = process.env.SEMRUSH_API_BASE || 'https://api.semrush.com/analytics/v1/';
+
+// The messages Semrush returns are terse and its codes are unmemorable, so the
+// common ones are translated into something that says what to do next.
+const SEMRUSH_ERRORS = {
+  120: 'Semrush rejected the API key. Check it was copied whole from Subscription Info → API units.',
+  121: 'That API key is not valid for this report.',
+  130: 'The Semrush API key has expired. Renew it in your Semrush account.',
+  131: 'This Semrush subscription has no API units left. Top them up, or wait for the monthly reset.',
+  132: 'Semrush reports the API is temporarily unavailable. Try again shortly.',
+  133: 'This Semrush plan does not include API access. API units are a separate add-on to the subscription.',
+  134: 'This Semrush plan does not include API access. API units are a separate add-on to the subscription.',
+  50: 'Semrush has no data for this domain yet.'
+};
+
+function parseSemrushCsv(text) {
+  const body = (text || '').trim();
+  if (!body) return [];
+  // Errors arrive with HTTP 200 and no header row.
+  const err = body.match(/^ERROR\s+(\d+)\s*::\s*(.*)$/i);
+  if (err) {
+    const e = new Error(SEMRUSH_ERRORS[Number(err[1])] || `Semrush: ${err[2]} (error ${err[1]})`);
+    e.semrushCode = Number(err[1]);
+    throw e;
+  }
+  const lines = body.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];             // header only: a valid empty result
+  const cols = lines[0].split(';');
+  return lines.slice(1).map(line => {
+    const cells = line.split(';');
+    const row = {};
+    cols.forEach((c, i) => { row[c.trim()] = cells[i] === undefined ? '' : cells[i]; });
+    return row;
+  });
+}
+
+async function semrush(type, params) {
+  const cfg = loadConfig();
+  if (!cfg.semrushKey) {
+    const e = new Error('No Semrush API key set. Add one on the Connections screen to see backlinks.');
+    e.status = 400;
+    throw e;
+  }
+  const url = new URL(SEMRUSH_API);
+  url.searchParams.set('key', cfg.semrushKey);
+  url.searchParams.set('type', type);
+  Object.keys(params).forEach(k => url.searchParams.set(k, params[k]));
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  let text;
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    text = await res.text();
+    if (!res.ok && !/^ERROR/i.test(text.trim())) {
+      throw new Error(`Semrush returned HTTP ${res.status}.`);
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Semrush did not respond within 30 seconds.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  return parseSemrushCsv(text);
+}
+
+// The domain Semrush should be asked about, taken from the Search Console
+// property so there is one place to set it. Semrush wants a bare host.
+function semrushTarget() {
+  const site = (loadConfig().gscSite || '').replace(/^sc-domain:/, '');
+  if (!site) throw new Error('Set the Search Console property first — Semrush is asked about the same domain.');
+  try {
+    return new URL(/^https?:\/\//i.test(site) ? site : 'https://' + site).hostname.replace(/^www\./i, '');
+  } catch (e) {
+    return site.replace(/^www\./i, '').replace(/\/.*$/, '');
+  }
+}
+
+const num = v => {
+  const n = Number(String(v || '').trim());
+  return Number.isFinite(n) ? n : 0;
+};
+
+async function semrushBacklinks() {
+  const target = semrushTarget();
+  const common = { target, target_type: 'root_domain' };
+
+  // Three calls, because one report cannot answer all three questions. Run
+  // together: each spends API units whether or not the others succeed.
+  const [overview, refdomains, recent] = await Promise.all([
+    semrush('backlinks_overview', Object.assign({
+      export_columns: 'ascore,total,domains_num,urls_num,ips_num,follows_num,nofollows_num,texts_num,images_num'
+    }, common)),
+    semrush('backlinks_refdomains', Object.assign({
+      export_columns: 'domain_ascore,domain,backlinks_num',
+      display_limit: 25,
+      display_sort: 'backlinks_num_desc'
+    }, common)),
+    semrush('backlinks', Object.assign({
+      export_columns: 'source_url,source_title,target_url,anchor,nofollow,first_seen,last_seen',
+      display_limit: 25,
+      display_sort: 'last_seen_desc'
+    }, common))
+  ]);
+
+  const o = overview[0] || {};
+  const domains = refdomains.map(r => ({
+    domain: r.domain,
+    authority: num(r.domain_ascore),
+    backlinks: num(r.backlinks_num)
+  }));
+
+  // Referring domains grouped the way the widget draws them, so the bar chart
+  // is describing real authority rather than the shape of the mock-up.
+  const bands = [
+    { label: '61–100', min: 61, max: 100 },
+    { label: '41–60',  min: 41, max: 60 },
+    { label: '21–40',  min: 21, max: 40 },
+    { label: '11–20',  min: 11, max: 20 },
+    { label: '0–10',   min: 0,  max: 10 }
+  ].map(b => ({
+    label: b.label,
+    count: domains.filter(d => d.authority >= b.min && d.authority <= b.max).length
+  }));
+
+  const follows = num(o.follows_num);
+  const nofollows = num(o.nofollows_num);
+
+  return {
+    target,
+    authority: num(o.ascore),
+    backlinks: num(o.total),
+    referringDomains: num(o.domains_num),
+    referringIps: num(o.ips_num),
+    referringPages: num(o.urls_num),
+    follows,
+    nofollows,
+    followShare: follows + nofollows ? (follows / (follows + nofollows)) * 100 : 0,
+    textLinks: num(o.texts_num),
+    imageLinks: num(o.images_num),
+    // Only the sampled domains are banded, so the widget can say so rather
+    // than implying every referring domain was measured.
+    bandsFrom: domains.length,
+    bands,
+    topDomains: domains.slice(0, 10),
+    recent: recent.map(r => ({
+      from: r.source_url,
+      title: r.source_title,
+      to: r.target_url,
+      anchor: r.anchor,
+      nofollow: String(r.nofollow).toLowerCase() === 'true',
+      firstSeen: r.first_seen,
+      lastSeen: r.last_seen
+    })).slice(0, 10)
+  };
+}
+
+module.exports = { shapePsi, parseSemrushCsv };
 
 /* ── AI Search readiness ────────────────────────────────────── */
 
@@ -708,6 +876,8 @@ async function dashboardData(days) {
     }),
 
     attempt('rankings', async () => gscRankings(days)),
+
+    attempt('backlinks', async () => semrushBacklinks()),
 
     attempt('analytics', async () => {
       if (!cfg.ga4Property) throw new Error('No GA4 property set.');
@@ -852,6 +1022,7 @@ const server = http.createServer(async (req, res) => {
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement,
         hasPsiKey: Boolean(cfg.psiKey),
+        hasSemrushKey: Boolean(cfg.semrushKey),
         psiKeyIsBundled: Boolean(!process.env.PAGESPEED_API_KEY && !readJson(CONFIG_FILE, {}).psiKey && loadDefaults().psiKey),
         redirectUri: redirectUri(req)
       });
@@ -860,7 +1031,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       const patch = {};
-      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement', 'psiKey'].forEach(k => {
+      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement', 'psiKey', 'semrushKey'].forEach(k => {
         if (typeof body[k] === 'string') patch[k] = body[k].trim();
       });
       if (patch.ga4Property) patch.ga4Property = patch.ga4Property.replace(/^properties\//, '');
@@ -1028,6 +1199,26 @@ const server = http.createServer(async (req, res) => {
         tookMs: audit.tookMs || 0,
         result: audit.state === 'done' ? audit.result : null
       });
+    }
+
+    if (route === '/api/semrush/test') {
+      // Deliberately the cheapest report, so testing a key costs almost
+      // nothing in API units.
+      const rows = await semrush('backlinks_overview', {
+        target: semrushTarget(), target_type: 'root_domain', export_columns: 'ascore,total,domains_num'
+      });
+      const o = rows[0] || {};
+      return send(res, 200, {
+        ok: true,
+        target: semrushTarget(),
+        authority: Number(o.ascore) || 0,
+        backlinks: Number(o.total) || 0,
+        referringDomains: Number(o.domains_num) || 0
+      });
+    }
+
+    if (route === '/api/backlinks') {
+      return send(res, 200, await semrushBacklinks());
     }
 
     if (route === '/api/ga4/properties') {
