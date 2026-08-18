@@ -3029,7 +3029,13 @@
       a.href = m[0];
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      a.textContent = m[0].length > 60 ? m[0].slice(0, 57) + '…' : m[0];
+      // Elide the middle, and give the tail most of the budget. What
+      // identifies a URL is almost always at the end: two Google "enable this
+      // API" links share a long prefix and differ only near the end, so an
+      // even split — or worse, cutting the tail — makes them look identical.
+      a.textContent = m[0].length > 80
+        ? m[0].slice(0, 20) + '…' + m[0].slice(-55)
+        : m[0];
       frag.appendChild(a);
       last = m.index + m[0].length;
     }
@@ -3282,6 +3288,62 @@
     var problem = cfg.clientId ? clientIdProblem(cfg.clientId) : '';
     $('fClientId').setAttribute('aria-invalid', problem ? 'true' : 'false');
     say('clientIdOut', problem, problem ? 'err' : '');
+  }
+
+  /* ── Making Google's GA4 errors actionable ────────────────────
+     Every one of these names a symptom and none names a cause. Two
+     completely different problems — the account not being on the
+     property, and the wrong API being switched off in Cloud — produce
+     messages that read almost the same, and the fix is in a different
+     product each time.
+
+     `stage` says which call failed: listing the readable properties
+     (Admin API) or pulling the report (Data API). They are separate
+     APIs with separate switches, and that distinction is the whole
+     diagnosis.
+     ─────────────────────────────────────────────────────────────── */
+  function googleProjectNumber() {
+    // A client ID starts with the project number: 770742919872-abc….
+    var m = String(cfg.clientId || '').match(/^(\d{6,})-/);
+    return m ? m[1] : '';
+  }
+
+  function enableApiUrl(api) {
+    var proj = googleProjectNumber();
+    return 'https://console.cloud.google.com/apis/library/' + api +
+      (proj ? '?project=' + proj : '');
+  }
+
+  function explainGa4(message, stage) {
+    var msg = String(message || '');
+    var who = (serverStatus && serverStatus.account) ? serverStatus.account : 'the signed-in Google account';
+    var prop = cfg.ga4Property || 'the property';
+
+    if (/has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured/i.test(msg)) {
+      var api = stage === 'list' ? 'analyticsadmin.googleapis.com' : 'analyticsdata.googleapis.com';
+      var name = stage === 'list' ? 'Google Analytics Admin API' : 'Google Analytics Data API';
+      return 'The ' + name + ' is switched off for this Google Cloud project, so the request never reached ' +
+        'Analytics. Enable it at ' + enableApiUrl(api) + ' then wait a minute and test again. ' +
+        'These are two separate APIs — enabling one does not enable the other.';
+    }
+    if (/sufficient permission|PERMISSION_DENIED|caller does not have permission|403/i.test(msg)) {
+      if (stage === 'list') {
+        return who + ' cannot list any GA4 property. Either the Admin API is off for this project (' +
+          enableApiUrl('analyticsadmin.googleapis.com') + '), or that account has not been added to any property.';
+      }
+      return who + ' is not on property ' + prop + '. In GA4 open Admin → Property access management for that ' +
+        'exact property, add ' + who + ' with Viewer, and test again. Two things commonly look like this: ' +
+        'access granted at account level rather than on the property, and a property ID copied from a different ' +
+        'GA4 account. Press Test connection to see which properties this account really can read.';
+    }
+    if (/not found|NOT_FOUND|404/i.test(msg)) {
+      return 'Analytics has no property numbered ' + prop + '. It is the number under GA4 → Admin → Property details, ' +
+        'not the G- measurement ID and not the account ID.';
+    }
+    if (/Token expired|invalid_grant|unauthenticated|401/i.test(msg)) {
+      return 'The Google sign-in has expired. Reconnect at the top of this screen, then test again.';
+    }
+    return msg;
   }
 
   function refreshSemrushPill() {
@@ -3575,11 +3637,19 @@
         return;
       }
       say('ga4TestOut', 'Testing…');
+      var listError = null;
       persistSettings().then(function () {
         // List what this account can actually read before testing the ID, so a
         // permissions failure can name the cause instead of restating Google.
-        return SERVER ? srv('/api/ga4/properties', null, 45000).catch(function () { return null; }) : null;
+        return SERVER ? srv('/api/ga4/properties', null, 45000).catch(function (e) {
+          // Keep the reason. Discarding it here is what left the raw Google
+          // message on screen with nothing to act on: the diagnosis failed
+          // silently and the test carried on to fail unhelpfully.
+          listError = e;
+          return null;
+        }) : null;
       }).then(function (list) {
+        if (listError) { say('ga4TestOut', explainGa4(listError.message, 'list'), 'err'); return null; }
         if (list && list.properties) {
           fillGa4Picker(list.properties);
           var match = list.properties.filter(function (p) { return p.id === cfg.ga4Property; })[0];
@@ -3588,8 +3658,9 @@
             say('ga4TestOut', list.properties.length
               ? 'Property ' + cfg.ga4Property + ' is not one of the ' + list.properties.length +
                 ' ' + (list.properties.length === 1 ? 'property' : 'properties') + ' ' + who +
-                ' can read. Pick the right one from the list, or grant that account access in GA4.'
-              : who + ' cannot read any GA4 property. Grant it Viewer access in GA4 → Admin → Property access management.', 'err');
+                ' can read. Pick the right one from the list, or add that account in GA4 → Admin → Property access management.'
+              : who + ' cannot read any GA4 property. Add it in GA4 → Admin → Property access management with at least Viewer, ' +
+                'then test again. Account access at the top level is not enough — access has to be on the property.', 'err');
             return null;
           }
         }
@@ -3599,7 +3670,7 @@
         var n = (res.rows || []).length;
         say('ga4TestOut', n ? 'Connected — the property returned data.' : 'Connected, but the property reported no rows for the last 7 days.', n ? 'ok' : 'warn');
         ga4RefreshChrome();
-      }).catch(function (e) { say('ga4TestOut', e.message, 'err'); });
+      }).catch(function (e) { say('ga4TestOut', explainGa4(e.message, 'report'), 'err'); });
     });
 
     // Leaving a settings field saves it, so no value can sit in the form
@@ -4828,7 +4899,12 @@
         // Only on a deliberate refresh. A background pull that toasts every
         // unconnected source every few minutes is an alarm, not information.
         if (d.notes && d.notes.length) {
-          d.notes.forEach(function (n) { toast(n.source + ': ' + n.reason); });
+          d.notes.forEach(function (n) {
+            // Same translation as the Test connection button — a note about
+            // GA4 is worth as much as the error beside the field.
+            var reason = n.source === 'analytics' ? explainGa4(n.reason, 'report') : n.reason;
+            toast(n.source + ': ' + reason);
+          });
         }
       }
     }).catch(function (e) {
