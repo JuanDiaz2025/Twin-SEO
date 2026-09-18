@@ -362,7 +362,19 @@ async function gscRankings(days) {
     lost,
     movers: movers.slice(0, 25),
     page1Share: totalImp ? (page1Imp / totalImp) * 100 : 0,
-    topQueries: rows.slice().sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 10)
+    // The keywords actually earning clicks, each carrying where it sat last
+    // period. A ranking table without movement says where you are but not
+    // which way you are going, which is the half that decides what to do.
+    topQueries: rows.slice()
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions)
+      .slice(0, 25)
+      .map(r => {
+        const was = priorPos.get(r.query);
+        return Object.assign({}, r, {
+          was: was === undefined ? null : was,
+          delta: was === undefined ? null : was - r.position   // positive = climbed
+        });
+      })
   };
 }
 

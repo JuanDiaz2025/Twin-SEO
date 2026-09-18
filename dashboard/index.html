@@ -671,6 +671,13 @@
     text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
   }
   .data-tbl td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  /* In a narrow widget the first column collapses to a few characters, which
+     is useless when that column is the keyword itself. This lets it wrap onto
+     a second line instead of being cut. */
+  .data-tbl.wrap-first td:first-child {
+    white-space: normal; overflow: visible; text-overflow: clip;
+    overflow-wrap: anywhere; min-width: 11ch; padding-right: 8px;
+  }
   .data-tbl tbody tr:hover td { background: var(--surface-sub); }
   .bar-cell { position: relative; }
   .bar-cell .bar {
@@ -4697,8 +4704,11 @@
             '<span class="eyebrow">Keywords by position · Search Console, last ' + k.days + ' days</span>' +
             '<div class="dist" style="margin-top:8px"></div>' +
             '<div class="divider" style="margin:14px 0 10px"></div>' +
-            '<span class="eyebrow">Biggest moves against the previous ' + k.days + ' days</span>' +
-            '<div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>' +
+            '<div class="tabs" role="tablist" style="margin-bottom:8px">' +
+              '<button class="tab" role="tab" data-rank="top" aria-selected="true">Where they rank</button>' +
+              '<button class="tab" role="tab" data-rank="moves" aria-selected="false">Biggest moves</button>' +
+            '</div>' +
+            '<div style="overflow-x:auto"><table class="data-tbl wrap-first"></table></div>' +
             '<p class="field-hint" style="margin:10px 0 0"></p>';
 
           var rmax = Math.max.apply(null, k.buckets.map(function (b) { return b.count; })) || 1;
@@ -4717,26 +4727,63 @@
             rdist.appendChild(row);
           });
 
-          renderTable(rhost.querySelector('table'), [
-            { key: 'query', label: 'Query' },
-            { key: 'from', label: 'Was', fmt: fmtPos },
-            { key: 'to', label: 'Now', fmt: fmtPos },
-            { key: 'delta', label: 'Move', fmt: function (v) {
-              // A climb is a fall in the position number, so the sign is
-              // flipped for display or every improvement reads as a loss.
-              return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1);
-            } },
-            { key: 'impressions', label: 'Impr.', fmt: fmtInt }
-          ], k.movers.slice(0, 8), 'No query moved by a full position this period.', true);
+          // A climb is a fall in the position number, so the sign is flipped
+          // for display or every improvement would read as a loss.
+          var moveCol = { key: 'delta', label: 'Move', fmt: function (v) {
+            if (v === null || v === undefined) return 'new';
+            if (Math.abs(v) < 0.1) return '—';
+            return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1);
+          } };
 
-          // Colour the move column: climbing is good, slipping is not.
-          rhost.querySelectorAll('tbody tr').forEach(function (tr, i) {
-            var cell = tr.children[3];
-            var mover = k.movers[i];
-            if (!cell || !mover) return;
-            cell.style.color = mover.delta > 0 ? 'var(--good-text)' : 'var(--critical-text)';
-            cell.style.fontWeight = '600';
+          var RANK_VIEWS = {
+            top: {
+              rows: k.topQueries,
+              empty: 'Search Console reports no queries with impressions in this window.',
+              cols: [
+                { key: 'query', label: 'Keyword' },
+                { key: 'position', label: 'Position', fmt: fmtPos },
+                moveCol,
+                { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+                { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+              ]
+            },
+            moves: {
+              rows: k.movers,
+              empty: 'No query moved by a full position this period.',
+              cols: [
+                { key: 'query', label: 'Keyword' },
+                { key: 'from', label: 'Was', fmt: fmtPos },
+                { key: 'to', label: 'Now', fmt: fmtPos },
+                moveCol,
+                { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+              ]
+            }
+          };
+
+          function drawRankTable(which) {
+            var v = RANK_VIEWS[which];
+            var rows = v.rows.slice(0, 12);
+            renderTable(rhost.querySelector('table'), v.cols, rows, v.empty, true);
+            // Colour the move column wherever it sits in this table.
+            var moveAt = v.cols.indexOf(moveCol);
+            rhost.querySelectorAll('tbody tr').forEach(function (tr, i) {
+              var cell = tr.children[moveAt];
+              var row = rows[i];
+              if (!cell || !row || row.delta === null || row.delta === undefined) return;
+              if (Math.abs(row.delta) < 0.1) return;
+              cell.style.color = row.delta > 0 ? 'var(--good-text)' : 'var(--critical-text)';
+              cell.style.fontWeight = '600';
+            });
+          }
+
+          rhost.querySelector('.tabs').addEventListener('click', function (ev) {
+            var t = ev.target.closest('[data-rank]');
+            if (!t) return;
+            this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+            t.setAttribute('aria-selected', 'true');
+            drawRankTable(t.getAttribute('data-rank'));
           });
+          drawRankTable('top');
 
           rhost.querySelector('.field-hint').textContent =
             k.improved + ' improved · ' + k.declined + ' declined · ' + k.newQueries +
