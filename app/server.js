@@ -56,9 +56,14 @@ const SCOPES = [
   'email'   // so the dashboard can show which account is connected
 ].join(' ');
 
-// The one file this app writes to Drive. Kept to a fixed name so it is updated
-// in place rather than piling up a new copy after every scan.
-const DRIVE_FILE = 'twin-seo-live.json';
+// The files this app keeps in Drive. Fixed names, updated in place, so a scan a
+// minute apart does not leave a trail of copies.
+const DRIVE_FILE = 'twin-seo-live.json';    // the finished report
+const STATUS_FILE_NAME = 'twin-seo-status.json'; // heartbeat and live progress
+
+// The request channel. Its NAME is the message — see the remote-scan section.
+const SIGNAL_PREFIX = 'twin-seo-scan';
+const SIGNAL_IDLE = `${SIGNAL_PREFIX}.idle.json`;
 
 /* ── tiny JSON store ────────────────────────────────────────── */
 
@@ -107,7 +112,10 @@ function loadConfig() {
     psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || defaults.psiKey || '',
     semrushKey: process.env.SEMRUSH_API_KEY || stored.semrushKey || defaults.semrushKey || '',
     ga4Measurement: stored.ga4Measurement || '',
-    ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, '')
+    ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, ''),
+    // Whether the shared page may ask this machine to start a scan. On unless
+    // it has been turned off — off, the Scan now button there does nothing.
+    remoteScans: stored.remoteScans !== false
   };
 }
 
@@ -969,36 +977,52 @@ async function driveRequest(url, opts) {
 
 // With drive.file this lists only files this app created, so matching on the
 // name cannot collide with anything already in the Drive.
-async function findDriveFile() {
-  const q = encodeURIComponent(`name = '${DRIVE_FILE}' and trashed = false`);
+async function findDriveFile(name) {
+  const q = encodeURIComponent(`name = '${name || DRIVE_FILE}' and trashed = false`);
   const data = await driveRequest(
     `${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&pageSize=10`, { method: 'GET' });
   const files = (data && data.files) || [];
   return files[0] || null;
 }
 
-async function publishToDrive() {
-  const body = JSON.stringify(buildLivePayload(), null, 2);
-  const existing = await findDriveFile();
+// The signal file is found by prefix because its name is what changes.
+async function findSignalFile() {
+  const q = encodeURIComponent(`name contains '${SIGNAL_PREFIX}' and trashed = false`);
+  const data = await driveRequest(
+    `${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&pageSize=10`, { method: 'GET' });
+  const files = ((data && data.files) || []).filter(f => f.name.startsWith(SIGNAL_PREFIX + '.'));
+  return files[0] || null;
+}
 
-  if (existing) {
+// Content write, create-or-replace, for any of this app's files.
+async function writeDriveFile(name, body, existing) {
+  const found = existing !== undefined ? existing : await findDriveFile(name);
+  if (found) {
     const updated = await driveRequest(
-      `${DRIVE_API}/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,name,modifiedTime`,
+      `${DRIVE_API}/upload/drive/v3/files/${found.id}?uploadType=media&fields=id,name,modifiedTime`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
     return { id: updated.id, name: updated.name, modifiedTime: updated.modifiedTime, created: false };
   }
-
   // Multipart create: metadata part, then the content part.
   const boundary = 'twinseo' + Date.now();
   const multipart =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-    JSON.stringify({ name: DRIVE_FILE, mimeType: 'application/json' }) +
+    JSON.stringify({ name, mimeType: 'application/json' }) +
     `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
     body + `\r\n--${boundary}--`;
   const created = await driveRequest(
     `${DRIVE_API}/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime`,
     { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart });
   return { id: created.id, name: created.name, modifiedTime: created.modifiedTime, created: true };
+}
+
+async function renameDriveFile(id, name) {
+  return driveRequest(`${DRIVE_API}/drive/v3/files/${id}?fields=id,name`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+}
+
+async function publishToDrive() {
+  return writeDriveFile(DRIVE_FILE, JSON.stringify(buildLivePayload(), null, 2));
 }
 
 // What happened the last time the app pushed to Drive, so the screen can say.
@@ -1015,6 +1039,169 @@ function autoPublish(what) {
     lastPublish = { at: Date.now(), ok: false, error: err.message || String(err), fileId: '', enabled: true };
     console.log(`  Could not publish ${what} to Drive: ${lastPublish.error}`);
   });
+}
+
+/* ── Remote scan requests ───────────────────────────────────────
+   The shared page has a Scan now button. The crawl still has to
+   happen here — a published page cannot fetch a website — so the
+   button has to reach this machine, and Drive is the only channel
+   both ends can touch.
+
+   The obvious design does not work. This app holds `drive.file`,
+   which sees only files this app itself created, so a request file
+   written by the page would be invisible here. And the page's Drive
+   connector can only change a file's TITLE, never its contents.
+
+   So the request travels as the filename of a file this app owns.
+   The app creates `twin-seo-scan.idle.json`; the page renames it to
+   `twin-seo-scan.run-audit.<stamp>.json`; the app, polling its own
+   file's name, sees the request, renames it to `.busy.` and starts
+   crawling. Both halves stay inside what each end is allowed to do.
+
+   Alongside it `twin-seo-status.json` is rewritten every few seconds
+   with progress, so the page can show a crawl advancing rather than
+   a spinner, and can tell "the app is off" from "the app is busy".
+   ─────────────────────────────────────────────────────────────── */
+
+const SIGNAL_TICK_MS = Number(process.env.SIGNAL_TICK_MS) || 15 * 1000;
+// A request nobody was around to answer goes stale rather than firing a crawl
+// the moment the laptop is opened the next morning.
+const SIGNAL_MAX_AGE_MS = 15 * 60 * 1000;
+const KINDS = { 'run-audit': 'siteAudit', 'run-ai': 'aiSearch' };
+
+let remote = {
+  on: false,          // the loop is running
+  seenAt: 0,          // last successful Drive tick
+  error: '',          // why the last tick failed
+  signalName: '',     // what the request file is called right now
+  acceptedAt: 0,      // when this app last took a request
+  acceptedKind: '',
+  statusAt: 0,        // last time the status file was written
+  statusShape: ''     // what it said, so an unchanged status is not rewritten
+};
+
+function stamp() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+}
+
+// `twin-seo-scan.run-audit.20260918T224000Z.json` → {kind, at}
+function readSignal(name) {
+  const m = /^twin-seo-scan\.(run-audit|run-ai)\.(\d{8}T\d{6}Z)\./.exec(name);
+  if (!m) return null;
+  const d = m[2];
+  const at = Date.parse(
+    `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T${d.slice(9, 11)}:${d.slice(11, 13)}:${d.slice(13, 15)}Z`);
+  return { kind: m[1], at: Number.isNaN(at) ? 0 : at };
+}
+
+function scanStatus(job) {
+  return {
+    state: job.state,
+    crawled: job.crawled || 0,
+    total: job.total || 0,
+    phase: job.phase || '',
+    paused: Boolean(job.paused),
+    url: job.url || '',
+    startedAt: job.startedAt || 0
+  };
+}
+
+// Everything the page needs to describe this machine right now.
+function buildStatusPayload() {
+  const cfg = loadConfig();
+  return {
+    appSeenAt: new Date().toISOString(),
+    site: (cfg.gscSite || '').replace(/^sc-domain:/, ''),
+    acceptsRequests: cfg.remoteScans !== false,
+    siteAudit: scanStatus(audit),
+    aiSearch: scanStatus(aiScan),
+    lastRequest: remote.acceptedAt
+      ? { acceptedAt: new Date(remote.acceptedAt).toISOString(), kind: remote.acceptedKind }
+      : null
+  };
+}
+
+function busy() {
+  return audit.state === 'running' || aiScan.state === 'running';
+}
+
+async function remoteTick() {
+  const cfg = loadConfig();
+  const file = await findSignalFile();
+
+  // First run after connecting: put the mailbox there for the page to find.
+  if (!file) {
+    await writeDriveFile(SIGNAL_IDLE, JSON.stringify({
+      what: 'Twin SEO scan request. The NAME of this file is the message — rename it to ' +
+            'twin-seo-scan.run-audit.<stamp>.json to ask the app to crawl. Do not delete it.'
+    }, null, 2), null);
+    remote.signalName = SIGNAL_IDLE;
+  } else {
+    remote.signalName = file.name;
+    const req = readSignal(file.name);
+
+    if (req && cfg.remoteScans === false) {
+      await renameDriveFile(file.id, SIGNAL_IDLE);   // declined, and it says so
+      console.log('  Declined a scan request from the shared page (remote scans are off).');
+    } else if (req && Date.now() - req.at > SIGNAL_MAX_AGE_MS) {
+      await renameDriveFile(file.id, SIGNAL_IDLE);   // too old to act on
+    } else if (req && busy()) {
+      // Leave it alone; it gets picked up on the tick after the current scan.
+    } else if (req) {
+      const kind = KINDS[req.kind];
+      const target = (cfg.gscSite || '').trim();
+      let startUrl = '';
+      try {
+        startUrl = new URL(/^https?:\/\//i.test(target) ? target
+          : 'https://' + target.replace(/^sc-domain:/, '')).toString();
+      } catch (e) { startUrl = ''; }
+
+      if (!startUrl) {
+        await renameDriveFile(file.id, SIGNAL_IDLE);
+        remote.error = 'A scan was requested but no site is configured on the Connections screen.';
+        console.log('  ' + remote.error);
+      } else {
+        await renameDriveFile(file.id, `${SIGNAL_PREFIX}.busy.${req.kind}.${stamp()}.json`);
+        remote.acceptedAt = Date.now();
+        remote.acceptedKind = kind;
+        if (kind === 'siteAudit') startAudit(startUrl, 200, 'normal');
+        else startAiScan(startUrl, 60, 'normal');
+        console.log(`  Shared page asked for a ${kind === 'siteAudit' ? 'site audit' : 'AI readiness'} scan — started.`);
+      }
+    } else if (/\.busy\./.test(file.name) && !busy()) {
+      await renameDriveFile(file.id, SIGNAL_IDLE);   // the scan it marked has finished
+    }
+  }
+
+  // Rewritten whenever anything the page would show has changed, and otherwise
+  // on a slow heartbeat so "the app is still here" stays true. Without the
+  // change check, flipping the toggle off would take a minute to reach the page.
+  const payload = buildStatusPayload();
+  const fingerprint = JSON.stringify(Object.assign({}, payload, { appSeenAt: '' }));
+  const every = busy() ? SIGNAL_TICK_MS : SIGNAL_TICK_MS * 4;
+  if (fingerprint !== remote.statusShape || Date.now() - remote.statusAt >= every) {
+    await writeDriveFile(STATUS_FILE_NAME, JSON.stringify(payload, null, 2));
+    remote.statusAt = Date.now();
+    remote.statusShape = fingerprint;
+  }
+  remote.seenAt = Date.now();
+  remote.error = '';
+}
+
+function startRemoteLoop() {
+  if (remote.on) return;
+  remote.on = true;
+  const tick = () => {
+    const tokens = readJson(TOKEN_FILE, {});
+    if (!tokens.refresh_token) return;   // nothing to do until Google is connected
+    remoteTick().catch(err => {
+      remote.error = err.message || String(err);
+      remote.seenAt = 0;
+    });
+  };
+  const timer = setInterval(tick, SIGNAL_TICK_MS);
+  if (timer.unref) timer.unref();        // never hold the process open on its own
+  tick();
 }
 
 // Everything the shared page shows. Summaries and capped lists — a full crawl
@@ -1226,6 +1413,7 @@ const server = http.createServer(async (req, res) => {
       const code = url.searchParams.get('code');
       if (!code) return send(res, 400, { error: 'No authorization code returned.' });
       await exchangeCode(code, redirectUri(req));
+      startRemoteLoop();   // now that there is a token, the mailbox can be put up
       res.writeHead(302, { Location: '/?connected=1' });
       return res.end();
     }
@@ -1368,12 +1556,24 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, Object.assign({ ok: true }, r));
     }
 
+    if (route === '/api/remote' && req.method === 'POST') {
+      const body = await readBody(req);
+      saveConfig({ remoteScans: Boolean(body.on) });
+      if (body.on) startRemoteLoop();
+      return send(res, 200, { ok: true, on: Boolean(body.on) });
+    }
+
     if (route === '/api/publish/status') {
+      const cfg = loadConfig();
       return send(res, 200, {
         file: DRIVE_FILE,
         lastAt: lastPublish.at,
         ok: lastPublish.ok,
-        error: lastPublish.error
+        error: lastPublish.error,
+        remoteOn: cfg.remoteScans !== false,
+        remoteSeenAt: remote.seenAt,
+        remoteError: remote.error,
+        signal: remote.signalName
       });
     }
 
@@ -1469,7 +1669,9 @@ server.listen(PORT, HOST, () => {
   console.log(`  Google account        ${tokens.refresh_token ? (tokens.email || 'connected') : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
   console.log(`  GA4 property          ${cfg.ga4Property || '—'}`);
-  console.log(`  PageSpeed key         ${cfg.psiKey ? 'set' : 'not set (Google will rate-limit)'}\n`);
+  console.log(`  PageSpeed key         ${cfg.psiKey ? 'set' : 'not set (Google will rate-limit)'}`);
+  console.log(`  Shared-page requests  ${cfg.remoteScans !== false ? 'accepted' : 'off'}\n`);
+  startRemoteLoop();
   if (process.argv.includes('--open') || IS_PACKAGED) {
     openBrowser(`http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   }

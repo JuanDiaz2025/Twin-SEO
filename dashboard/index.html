@@ -1769,6 +1769,31 @@
 
           <section class="w">
             <div class="w-head">
+              <h3>Shared page</h3>
+              <span class="info" title="What the app writes to Drive so a shared page can show a scan.">i</span>
+              <div class="w-tools"><span class="status-pill" id="remotePill"><i></i>Checking…</span></div>
+            </div>
+            <div class="w-body">
+              <p class="field-hint" style="margin:0 0 10px">
+                When a scan finishes, this app writes the result to <code>twin-seo-live.json</code> in your Google
+                Drive, so a shared page can show it without the app. It uses the <code>drive.file</code> permission,
+                which reaches only files this app created — never anything already in your Drive.
+              </p>
+              <p class="field-hint" style="margin:0 0 10px">
+                It also leaves a small request file there. Pressing <b>Scan now</b> on the shared page renames it, and
+                this app — which checks every fifteen seconds while it is open — starts the crawl. Turn that off if
+                you would rather scans only ever start here.
+              </p>
+              <div class="actions">
+                <button class="btn" id="btnRemote">Loading…</button>
+                <button class="btn" id="btnPublishNow">Publish latest scan now</button>
+                <span class="field-hint" id="remoteOut"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
               <h3>Google Search Console</h3>
               <div class="w-tools"><span class="status-pill" id="gscPill2"><i></i>Not configured</span></div>
             </div>
@@ -3628,6 +3653,74 @@
       saveCfg(); fillForm();
       say('tokenInfo', 'Signed out on this device.');
     });
+
+    /* ── Shared page ────────────────────────────────────────
+       The Drive side of things: what was last published, and
+       whether a shared page may ask this machine to crawl.
+       ───────────────────────────────────────────────────────── */
+    var remoteOn = null;
+
+    function drawRemote(s) {
+      var btn = $('btnRemote');
+      if (!SERVER) {
+        setPill($('remotePill'), 'warn', 'Needs the app');
+        btn.disabled = true; btn.textContent = 'Not available';
+        say('remoteOut', 'Publishing to Drive happens in the app, not in this page on its own.');
+        return;
+      }
+      if (!s) {
+        setPill($('remotePill'), 'err', 'Unavailable');
+        btn.disabled = true; btn.textContent = 'Unavailable';
+        return;
+      }
+      remoteOn = s.remoteOn !== false;
+      btn.disabled = false;
+      btn.textContent = remoteOn ? 'Turn off scan requests' : 'Turn on scan requests';
+      var published = s.lastAt
+        ? (s.ok ? 'Published ' + new Date(s.lastAt).toLocaleString() + '.'
+                : 'Last publish failed: ' + s.error)
+        : 'Nothing published yet — it happens by itself when a scan finishes.';
+      if (!s.ok && s.lastAt) setPill($('remotePill'), 'err', 'Publish failed');
+      else if (!remoteOn) setPill($('remotePill'), 'warn', 'Requests off');
+      else if (s.remoteSeenAt) setPill($('remotePill'), 'ok', 'Listening');
+      else setPill($('remotePill'), 'warn', 'Not connected');
+      var extra = remoteOn
+        ? (s.remoteError ? ' Drive is not answering: ' + s.remoteError
+                         : s.remoteSeenAt ? ' Listening for Scan now on the shared page.'
+                                          : ' Connect Google above and this starts listening.')
+        : ' Scan now on the shared page is switched off.';
+      say('remoteOut', published + extra, (!s.ok && s.lastAt) || s.remoteError ? 'err' : '');
+    }
+
+    function refreshRemote() {
+      if (!SERVER) return drawRemote(null);
+      return srv('/api/publish/status', null, 15000)
+        .then(drawRemote)
+        .catch(function () { drawRemote(null); });
+    }
+
+    $('btnRemote').addEventListener('click', function () {
+      if (remoteOn === null) return;
+      var next = !remoteOn;
+      $('btnRemote').disabled = true;
+      srv('/api/remote', { on: next })
+        .then(refreshRemote)
+        .then(function () {
+          toast(next ? 'The shared page may now start a scan on this machine.'
+                     : 'Scan requests from the shared page are off.');
+        })
+        .catch(function (e) { say('remoteOut', e.message, 'err'); $('btnRemote').disabled = false; });
+    });
+
+    $('btnPublishNow').addEventListener('click', function () {
+      say('remoteOut', 'Publishing…');
+      srv('/api/publish', {}, 45000)
+        .then(function () { return refreshRemote(); })
+        .then(function () { toast('The latest scan is on the shared page.'); })
+        .catch(function (e) { say('remoteOut', e.message, 'err'); });
+    });
+
+    refreshRemote();
 
     $('btnTestGsc').addEventListener('click', function () {
       say('gscTestOut', 'Testing…');
