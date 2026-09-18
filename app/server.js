@@ -48,9 +48,17 @@ const HOST = process.env.HOST || '127.0.0.1';
 const SCOPES = [
   'https://www.googleapis.com/auth/webmasters.readonly',
   'https://www.googleapis.com/auth/analytics.readonly',
+  // drive.file is the narrow one: it grants access only to files this app
+  // itself creates, never to anything already in the Drive. It is what lets a
+  // finished scan reach the shared dashboard page.
+  'https://www.googleapis.com/auth/drive.file',
   'openid',
   'email'   // so the dashboard can show which account is connected
 ].join(' ');
+
+// The one file this app writes to Drive. Kept to a fixed name so it is updated
+// in place rather than piling up a new copy after every scan.
+const DRIVE_FILE = 'twin-seo-live.json';
 
 /* ── tiny JSON store ────────────────────────────────────────── */
 
@@ -483,6 +491,7 @@ function startAudit(startUrl, maxPages, pace) {
     job.state = 'done';
     job.tookMs = Date.now() - job.startedAt;
     rememberScan('siteAudit', summariseAudit(result, job));
+    autoPublish('site audit');
   }).catch(err => {
     if (!current()) return;
     job.error = err.message || 'The crawl failed.';
@@ -828,6 +837,7 @@ function startAiScan(startUrl, maxPages, pace) {
     job.state = 'done';
     job.tookMs = Date.now() - job.startedAt;
     rememberScan('aiSearch', summariseAi(result, job));
+    autoPublish('AI readiness');
   }).catch(err => {
     if (!current()) return;
     job.error = err.message || 'The scan failed.';
@@ -921,6 +931,145 @@ async function dashboardData(days) {
     ? summariseAi(aiScan.result, aiScan)
     : (remembered.aiSearch || null);
   out.sources.aiSearch = out.aiSearch ? 'live' : 'not run';
+
+  return out;
+}
+
+/* ── Publishing a finished scan to Drive ────────────────────────
+   A published artifact cannot crawl a website — no capability fetches
+   arbitrary URLs — so the crawl has to happen here. This is how its
+   result reaches a page other people can open: the app writes one JSON
+   file to Drive with `drive.file`, a scope that reaches only files this
+   app itself created, and the shared page reads it back.
+
+   Fixed filename, updated in place, so a scan a minute apart does not
+   leave a trail of copies.
+   ─────────────────────────────────────────────────────────────── */
+const DRIVE_API = process.env.DRIVE_API_BASE || 'https://www.googleapis.com';
+
+async function driveRequest(url, opts) {
+  const token = await accessToken();
+  const headers = Object.assign({ Authorization: `Bearer ${token}` }, opts.headers || {});
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { /* keep the raw text for the message */ }
+  if (!res.ok) {
+    const msg = (data && data.error && data.error.message) || text.slice(0, 200) || `HTTP ${res.status}`;
+    const err = new Error(
+      res.status === 403 && /insufficient|scope/i.test(msg)
+        ? 'Google has not granted this app permission to write to Drive. Disconnect and connect again ' +
+          'on the Connections screen — the sign-in now asks for one extra permission.'
+        : msg);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+// With drive.file this lists only files this app created, so matching on the
+// name cannot collide with anything already in the Drive.
+async function findDriveFile() {
+  const q = encodeURIComponent(`name = '${DRIVE_FILE}' and trashed = false`);
+  const data = await driveRequest(
+    `${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&pageSize=10`, { method: 'GET' });
+  const files = (data && data.files) || [];
+  return files[0] || null;
+}
+
+async function publishToDrive() {
+  const body = JSON.stringify(buildLivePayload(), null, 2);
+  const existing = await findDriveFile();
+
+  if (existing) {
+    const updated = await driveRequest(
+      `${DRIVE_API}/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,name,modifiedTime`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
+    return { id: updated.id, name: updated.name, modifiedTime: updated.modifiedTime, created: false };
+  }
+
+  // Multipart create: metadata part, then the content part.
+  const boundary = 'twinseo' + Date.now();
+  const multipart =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify({ name: DRIVE_FILE, mimeType: 'application/json' }) +
+    `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+    body + `\r\n--${boundary}--`;
+  const created = await driveRequest(
+    `${DRIVE_API}/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime`,
+    { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart });
+  return { id: created.id, name: created.name, modifiedTime: created.modifiedTime, created: true };
+}
+
+// What happened the last time the app pushed to Drive, so the screen can say.
+let lastPublish = { at: 0, ok: false, error: '', fileId: '', enabled: true };
+
+// A scan is still a good scan even if Drive is unreachable, so publishing never
+// fails the scan — it records why and the screen shows it.
+function autoPublish(what) {
+  if (!lastPublish.enabled) return;
+  publishToDrive().then(r => {
+    lastPublish = { at: Date.now(), ok: true, error: '', fileId: r.id, enabled: true };
+    console.log(`  Published ${what} to Drive (${r.created ? 'created' : 'updated'} ${DRIVE_FILE}).`);
+  }).catch(err => {
+    lastPublish = { at: Date.now(), ok: false, error: err.message || String(err), fileId: '', enabled: true };
+    console.log(`  Could not publish ${what} to Drive: ${lastPublish.error}`);
+  });
+}
+
+// Everything the shared page shows. Summaries and capped lists — a full crawl
+// of a thousand pages is megabytes, and none of it would be rendered.
+function buildLivePayload() {
+  const cfg = loadConfig();
+  const saved = readJson(SCANS_FILE, {});
+  const out = {
+    publishedAt: new Date().toISOString(),
+    site: (cfg.gscSite || '').replace(/^sc-domain:/, '') || 'twinhomebuyer.com',
+    siteAudit: null,
+    aiSearch: null
+  };
+
+  const a = (audit.state === 'done' && audit.result) ? audit.result : null;
+  if (a) {
+    out.siteAudit = {
+      health: a.health,
+      counts: a.counts,
+      crawled: a.crawled,
+      url: audit.url,
+      ranAt: audit.startedAt,
+      tookMs: audit.tookMs || 0,
+      issues: (a.issues || []).slice(0, 30).map(i => ({
+        key: i.key, title: i.title, severity: i.severity, count: i.count, how: i.how
+      })),
+      linkReport: a.linkReport ? {
+        totals: a.linkReport.totals,
+        items: a.linkReport.items.slice(0, 40).map(i => ({
+          path: i.path, url: i.url, label: i.label, kind: i.kind,
+          sourceCount: i.sourceCount, sources: i.sources.slice(0, 6), fix: i.fix
+        }))
+      } : null
+    };
+  } else if (saved.siteAudit) {
+    out.siteAudit = Object.assign({}, saved.siteAudit, { issues: [], linkReport: null });
+  }
+
+  const ai = (aiScan.state === 'done' && aiScan.result) ? aiScan.result : null;
+  if (ai) {
+    out.aiSearch = {
+      score: ai.score,
+      counts: ai.counts,
+      pages: ai.pagesAnalysed,
+      ranAt: aiScan.startedAt,
+      bots: ai.access.bots.map(b => ({ engine: b.engine, ua: b.ua, blocked: b.state === 'blocked' })),
+      questionShare: ai.entity.questionShare,
+      withSchema: ai.entity.withSchema,
+      issues: (ai.issues || []).slice(0, 30).map(i => ({
+        key: i.key, title: i.title, severity: i.severity, count: i.count, how: i.how
+      }))
+    };
+  } else if (saved.aiSearch) {
+    out.aiSearch = Object.assign({}, saved.aiSearch, { issues: [] });
+  }
 
   return out;
 }
@@ -1210,6 +1359,21 @@ const server = http.createServer(async (req, res) => {
         phaseOf: audit.phaseOf || 0,
         tookMs: audit.tookMs || 0,
         result: audit.state === 'done' ? audit.result : null
+      });
+    }
+
+    if (route === '/api/publish' && req.method === 'POST') {
+      const r = await publishToDrive();
+      lastPublish = { at: Date.now(), ok: true, error: '', fileId: r.id, enabled: true };
+      return send(res, 200, Object.assign({ ok: true }, r));
+    }
+
+    if (route === '/api/publish/status') {
+      return send(res, 200, {
+        file: DRIVE_FILE,
+        lastAt: lastPublish.at,
+        ok: lastPublish.ok,
+        error: lastPublish.error
       });
     }
 
