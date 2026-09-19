@@ -41,6 +41,13 @@ const TOKEN_FILE = path.join(DATA_DIR, 'tokens.json');
 // every scan the moment the app closes, and shows "not run" over results that
 // were gathered five minutes earlier.
 const SCANS_FILE = path.join(DATA_DIR, 'scans.json');
+// The keyword list this app checks positions for. The bundled file is only a
+// starting point; once edited in the app, the edited copy here wins.
+const KEYWORDS_FILE = path.join(DATA_DIR, 'keywords.json');
+
+// Overridable so the ranking logic can be exercised against a stand-in
+// Search Console rather than the live property.
+const GSC_API = process.env.GSC_API_BASE || 'https://searchconsole.googleapis.com';
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -240,7 +247,7 @@ async function gscReport(days, dim) {
     err.status = 400;
     throw err;
   }
-  const endpoint = 'https://searchconsole.googleapis.com/webmasters/v3/sites/' +
+  const endpoint = GSC_API + '/webmasters/v3/sites/' +
     encodeURIComponent(cfg.gscSite) + '/searchAnalytics/query';
   // Search Console lags roughly two days.
   const range = { startDate: dayOffset(-(days + 2)), endDate: dayOffset(-2) };
@@ -301,10 +308,187 @@ const BUCKETS = [
   { key: 'p51',    label: '51–100', test: p => p > 50 }
 ];
 
+/* ── Tracked keywords ───────────────────────────────────────────
+   The distribution above answers "where do I rank for what Google
+   already shows me for". It cannot answer "where do I stand on the
+   terms that matter", because a keyword you rank nowhere for draws no
+   impressions and so has no row in Search Console at all — it is
+   invisible in exactly the data you would use to look for it.
+
+   So the target list is kept here and matched against what Search
+   Console returns. A term with no match is reported as not seen, which
+   is the finding: nobody reached the site on it in this window.
+
+   One limit stated plainly rather than papered over: absence means no
+   impressions, not a measured position of 101. Google reports a
+   position only where it served an impression. A true rank check for
+   an unranked term needs a SERP scrape or a rank-tracker subscription,
+   and this app does neither.
+   ─────────────────────────────────────────────────────────────── */
+const KEYWORDS_BUNDLED = path.join(__dirname, 'keywords.json');
+
+function defaultKeywords() {
+  return readBundledJson('keywords', KEYWORDS_BUNDLED,
+    { version: 1, geoTemplates: [], cities: [], groups: [] });
+}
+
+function loadKeywords() {
+  const saved = readJson(KEYWORDS_FILE, null);
+  return saved && Array.isArray(saved.groups) ? saved : defaultKeywords();
+}
+
+// Search Console reports what people typed. Case, punctuation and doubled
+// spaces all vary between a target term and a real query, and none of them is
+// a different search.
+function normaliseQuery(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Every target term, with the geo templates expanded across the city list.
+function expandKeywords(list) {
+  const out = [];
+  const seen = new Set();
+  const add = (term, group, label, city) => {
+    const norm = normaliseQuery(term);
+    if (!norm || seen.has(norm)) return;
+    seen.add(norm);
+    out.push({ term: String(term).trim(), norm, group, groupLabel: label, city: city || null });
+  };
+  (list.groups || []).forEach(g => {
+    (g.terms || []).forEach(t => add(t, g.key, g.label));
+  });
+  const cities = list.cities || [];
+  const templates = list.geoTemplates || [];
+  cities.forEach(city => {
+    templates.forEach(t => add(String(t).replace(/\{city\}/gi, city), 'geo', 'By city', city));
+  });
+  return out;
+}
+
+// A target term matches a query outright, or — failing that — any query that
+// contains all of its words. "sell my house fast san jose" should not be
+// called unranked because the impression landed on "sell my house fast in san
+// jose ca". A contains-match is labelled as one rather than passed off as exact.
+function matchTracked(list, rows, priorPos) {
+  const targets = expandKeywords(list);
+  const exact = new Map();
+  rows.forEach(r => {
+    const n = normaliseQuery(r.query);
+    const prev = exact.get(n);
+    if (!prev || r.impressions > prev.impressions) exact.set(n, r);
+  });
+
+  // Index by word so a contains-match does not rescan every query per target.
+  const byWord = new Map();
+  rows.forEach(r => {
+    new Set(normaliseQuery(r.query).split(' ')).forEach(w => {
+      if (!byWord.has(w)) byWord.set(w, []);
+      byWord.get(w).push(r);
+    });
+  });
+
+  const items = targets.map(t => {
+    const hit = exact.get(t.norm);
+    if (hit) {
+      const was = priorPos.get(hit.query);
+      return {
+        term: t.term, group: t.group, groupLabel: t.groupLabel, city: t.city,
+        match: 'exact', via: hit.query,
+        position: hit.position, clicks: hit.clicks,
+        impressions: hit.impressions, ctr: hit.ctr,
+        was: was === undefined ? null : was,
+        delta: was === undefined ? null : was - hit.position   // positive = climbed
+      };
+    }
+
+    const words = t.norm.split(' ');
+    const rarest = words
+      .map(w => byWord.get(w) || [])
+      .sort((a, b) => a.length - b.length)[0] || [];
+    let best = null;
+    rarest.forEach(r => {
+      const n = normaliseQuery(r.query);
+      const has = words.every(w => n === w || n.startsWith(w + ' ') ||
+        n.endsWith(' ' + w) || n.indexOf(' ' + w + ' ') > -1);
+      if (!has) return;
+      if (!best || r.position < best.position ||
+         (r.position === best.position && r.impressions > best.impressions)) best = r;
+    });
+
+    if (best) {
+      const was = priorPos.get(best.query);
+      return {
+        term: t.term, group: t.group, groupLabel: t.groupLabel, city: t.city,
+        match: 'variant', via: best.query,
+        position: best.position, clicks: best.clicks,
+        impressions: best.impressions, ctr: best.ctr,
+        was: was === undefined ? null : was,
+        delta: was === undefined ? null : was - best.position
+      };
+    }
+
+    return {
+      term: t.term, group: t.group, groupLabel: t.groupLabel, city: t.city,
+      match: 'none', via: null, position: null, clicks: 0, impressions: 0, ctr: 0,
+      was: null, delta: null
+    };
+  });
+
+  const ranked = items.filter(i => i.position != null);
+  const groups = {};
+  items.forEach(i => {
+    const g = groups[i.group] || (groups[i.group] = {
+      key: i.group, label: i.groupLabel, total: 0, seen: 0, top10: 0, top3: 0, clicks: 0
+    });
+    g.total++;
+    if (i.position != null) {
+      g.seen++;
+      if (i.position <= 10) g.top10++;
+      if (i.position <= 3) g.top3++;
+      g.clicks += i.clicks;
+    }
+  });
+
+  // Per city, the best position across that city's templates — the local
+  // scoreboard across a 97-city service area, which a flat list buries.
+  const cityMap = {};
+  items.filter(i => i.city).forEach(i => {
+    const c = cityMap[i.city] || (cityMap[i.city] = {
+      city: i.city, total: 0, seen: 0, best: null, clicks: 0, impressions: 0
+    });
+    c.total++;
+    if (i.position != null) {
+      c.seen++;
+      c.clicks += i.clicks;
+      c.impressions += i.impressions;
+      if (c.best == null || i.position < c.best) c.best = i.position;
+    }
+  });
+
+  return {
+    total: items.length,
+    seen: ranked.length,
+    notSeen: items.length - ranked.length,
+    top3: ranked.filter(i => i.position <= 3).length,
+    top10: ranked.filter(i => i.position <= 10).length,
+    exactMatches: items.filter(i => i.match === 'exact').length,
+    variantMatches: items.filter(i => i.match === 'variant').length,
+    groups: Object.keys(groups).map(k => groups[k]),
+    cities: Object.keys(cityMap).map(k => cityMap[k])
+      .sort((a, b) => (a.best == null) - (b.best == null) ||
+        (a.best || 999) - (b.best || 999) || a.city.localeCompare(b.city)),
+    items: items
+  };
+}
+
 async function gscRankings(days) {
   const cfg = loadConfig();
   if (!cfg.gscSite) throw new Error('No Search Console property set.');
-  const endpoint = 'https://searchconsole.googleapis.com/webmasters/v3/sites/' +
+  const endpoint = GSC_API + '/webmasters/v3/sites/' +
     encodeURIComponent(cfg.gscSite) + '/searchAnalytics/query';
 
   // Two windows of the same length, back to back. Comparing them is what makes
@@ -363,11 +547,18 @@ async function gscRankings(days) {
   const totalImp = rows.reduce((n, r) => n + r.impressions, 0);
   const page1Imp = rows.filter(r => r.position <= 10).reduce((n, r) => n + r.impressions, 0);
 
+  // Built from the same two fetches rather than its own — a second pair of
+  // Search Console calls for the same window would only be the same data.
+  let tracked = null;
+  try { tracked = matchTracked(loadKeywords(), rows, priorPos); }
+  catch (e) { tracked = null; }
+
   return {
     property: cfg.gscSite,
     days,
     window: windows.current,
     keywords: rows.length,
+    tracked,
     distribution,
     buckets: BUCKETS.map(b => ({ key: b.key, label: b.label, count: distribution[b.key] })),
     top10: distribution.top3 + distribution.p4_10,
@@ -1556,6 +1747,45 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, Object.assign({ ok: true }, r));
     }
 
+    if (route === '/api/keywords' && req.method === 'GET') {
+      const list = loadKeywords();
+      return send(res, 200, {
+        list,
+        edited: fs.existsSync(KEYWORDS_FILE),
+        count: expandKeywords(list).length
+      });
+    }
+
+    if (route === '/api/keywords' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (body.reset) {
+        try { fs.unlinkSync(KEYWORDS_FILE); } catch (e) { /* already the default */ }
+        const list = defaultKeywords();
+        return send(res, 200, { ok: true, edited: false, count: expandKeywords(list).length, list });
+      }
+      const list = body.list;
+      if (!list || !Array.isArray(list.groups)) {
+        return send(res, 400, { error: 'Send a list with a groups array.' });
+      }
+      // Normalise rather than trust: a group with no terms, or a term that is
+      // only whitespace, would otherwise show up as a keyword you can never rank for.
+      const clean = {
+        version: 1,
+        geoTemplates: (list.geoTemplates || []).map(String).map(s => s.trim()).filter(Boolean),
+        cities: (list.cities || []).map(String).map(s => s.trim()).filter(Boolean),
+        groups: list.groups.map(g => ({
+          key: String(g.key || '').trim() || 'custom',
+          label: String(g.label || g.key || 'Custom').trim(),
+          why: String(g.why || '').trim(),
+          terms: (g.terms || []).map(String).map(s => s.trim()).filter(Boolean)
+        })).filter(g => g.terms.length)
+      };
+      const count = expandKeywords(clean).length;
+      if (!count) return send(res, 400, { error: 'That list has no keywords in it.' });
+      writeJson(KEYWORDS_FILE, clean);
+      return send(res, 200, { ok: true, edited: true, count, list: clean });
+    }
+
     if (route === '/api/remote' && req.method === 'POST') {
       const body = await readBody(req);
       saveConfig({ remoteScans: Boolean(body.on) });
@@ -1613,7 +1843,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (route === '/api/gsc/sites') {
-      const data = await google('https://searchconsole.googleapis.com/webmasters/v3/sites');
+      const data = await google(GSC_API + '/webmasters/v3/sites');
       return send(res, 200, { sites: (data.siteEntry || []).map(s => s.siteUrl) });
     }
 

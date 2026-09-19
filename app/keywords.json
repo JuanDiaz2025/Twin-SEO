@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "note": "Keywords Twin SEO checks your position for. Edit this on the Rankings card in the app — your edits are saved to .data/keywords.json and this bundled file is only the starting point. Geo terms are built by putting each city into each template, so 97 cities x 3 templates is 291 checks without typing them out.",
+  "geoTemplates": [
+    "sell my house fast {city}",
+    "we buy houses {city}",
+    "cash home buyers {city}"
+  ],
+  "cities": [
+    "Alameda", "Albany", "Dublin", "Emeryville", "Fremont", "Livermore", "Newark",
+    "Piedmont", "Pleasanton", "San Leandro", "San Lorenzo", "Union City",
+    "Antioch", "Brentwood", "Clayton", "Danville", "El Cerrito", "Hercules", "Lafayette",
+    "Martinez", "Moraga", "Oakley", "Orinda", "Pinole", "Pittsburg", "Pleasant Hill",
+    "Richmond", "San Pablo", "San Ramon", "Walnut Creek",
+    "Atherton", "Belmont", "Brisbane", "Burlingame", "Colma", "Daly City", "East Palo Alto",
+    "Foster City", "Half Moon Bay", "Hillsborough", "Menlo Park", "Millbrae", "Pacifica",
+    "Portola Valley", "Redwood City", "San Bruno", "San Carlos", "San Mateo", "Woodside",
+    "Campbell", "Cupertino", "Gilroy", "Los Altos", "Los Altos Hills", "Los Gatos", "Milpitas",
+    "Monte Sereno", "Morgan Hill", "Mountain View", "Palo Alto", "San Jose", "Santa Clara",
+    "Saratoga", "Stanford", "Sunnyvale",
+    "Belvedere", "Corte Madera", "Fairfax", "Larkspur", "Mill Valley", "Novato", "Ross",
+    "San Anselmo", "San Rafael", "Sausalito", "Tiburon",
+    "Cloverdale", "Cotati", "Healdsburg", "Petaluma", "Rohnert Park", "Santa Rosa",
+    "Sebastopol", "Sonoma", "Windsor",
+    "Benicia", "Dixon", "Fairfield", "Rio Vista", "Suisun City", "Vacaville", "Vallejo",
+    "American Canyon", "Calistoga", "Napa", "St Helena", "Yountville",
+    "Santa Cruz"
+  ],
+  "groups": [
+    {
+      "key": "core",
+      "label": "Core intent",
+      "why": "The head terms every cash buyer competes for. High volume, high competition, and the ones that decide whether you exist in this market at all.",
+      "terms": [
+        "sell my house fast",
+        "we buy houses",
+        "cash home buyers",
+        "cash home buyers near me",
+        "we buy houses near me",
+        "sell my house for cash",
+        "sell house fast for cash",
+        "we buy houses for cash",
+        "cash offer for my house",
+        "cash buyers for houses",
+        "sell my home fast",
+        "companies that buy houses for cash",
+        "house buying companies",
+        "quick house sale",
+        "sell my house without a realtor",
+        "sell house without agent",
+        "sell my house in 7 days"
+      ]
+    },
+    {
+      "key": "region",
+      "label": "Bay Area",
+      "why": "Regional terms sit between the head terms and the city pages. Cheaper to win than the national head terms, and they feed every city page below.",
+      "terms": [
+        "sell my house fast bay area",
+        "we buy houses bay area",
+        "cash home buyers bay area",
+        "bay area cash home buyers",
+        "sell my house fast san francisco bay area",
+        "we buy houses northern california",
+        "cash home buyers northern california",
+        "sell my house fast peninsula",
+        "we buy houses east bay",
+        "cash home buyers south bay"
+      ]
+    },
+    {
+      "key": "situation",
+      "label": "Seller situation",
+      "why": "Lower volume, far less competition, and the highest intent of anything here. Someone searching these has a problem your offer solves today. These are usually the cheapest wins on the list.",
+      "terms": [
+        "sell inherited house",
+        "sell inherited house fast",
+        "sell house in probate",
+        "probate home buyers",
+        "we buy probate houses",
+        "stop foreclosure",
+        "sell house before foreclosure",
+        "avoid foreclosure sell house",
+        "sell house behind on payments",
+        "sell house as is",
+        "sell house as is no repairs",
+        "sell house that needs repairs",
+        "sell fire damaged house",
+        "sell water damaged house",
+        "sell house with termite damage",
+        "sell hoarder house",
+        "sell condemned house",
+        "sell house with foundation problems",
+        "sell house with tenants",
+        "sell rental property fast",
+        "tired landlord sell house",
+        "sell house after divorce",
+        "sell house with tax lien",
+        "sell house with title issues",
+        "sell house with code violations",
+        "sell house low equity",
+        "sell house out of state owner",
+        "sell house during bankruptcy",
+        "sell house after death of owner",
+        "sell house in trust"
+      ]
+    },
+    {
+      "key": "question",
+      "label": "Questions",
+      "why": "What people search before they are ready to call. Winning these puts you in the answer box and in the AI assistants, which is what the AI readiness scan measures.",
+      "terms": [
+        "how to sell my house fast",
+        "how to sell a house without a realtor",
+        "how much do cash home buyers pay",
+        "are cash home buyers legit",
+        "how fast can you sell a house for cash",
+        "what is a cash offer on a house",
+        "do cash buyers pay closing costs",
+        "is selling to a cash buyer a good idea",
+        "how long does a cash home sale take",
+        "cash offer vs listing with a realtor"
+      ]
+    },
+    {
+      "key": "brand",
+      "label": "Brand",
+      "why": "Your own name. If these are not first, something is wrong that no amount of other work will fix.",
+      "terms": [
+        "twin home buyer",
+        "twin home buyers",
+        "twinhomebuyer",
+        "twin home buyer reviews"
+      ]
+    }
+  ]
+}

@@ -126,7 +126,8 @@ const seaConfig = {
 // API key, and this executable is published to a public repository, so baking
 // it in would publish the key. Drop defaults.json next to the exe instead and
 // the app picks it up at runtime.
-for (const [name, file] of [['semrush', 'app/semrush-snapshot.json']]) {
+for (const [name, file] of [['semrush', 'app/semrush-snapshot.json'],
+                            ['keywords', 'app/keywords.json']]) {
   if (fs.existsSync(path.join(ROOT, file))) seaConfig.assets[name] = file;
   else step(`(no ${file} — skipping that asset)`);
 }

@@ -2946,7 +2946,9 @@
             td.appendChild(bar);
           }
         } else {
-          td.textContent = c.fmt ? c.fmt(r[c.key]) : r[c.key];
+          // The row goes through too, so a cell can say "3 of 12" without
+          // the count having to be precomputed into its own field.
+          td.textContent = c.fmt ? c.fmt(r[c.key], r) : r[c.key];
         }
         tr.appendChild(td);
       });
@@ -4800,7 +4802,10 @@
             '<div class="tabs" role="tablist" style="margin-bottom:8px">' +
               '<button class="tab" role="tab" data-rank="top" aria-selected="true">Where they rank</button>' +
               '<button class="tab" role="tab" data-rank="moves" aria-selected="false">Biggest moves</button>' +
+              '<button class="tab" role="tab" data-rank="targets" aria-selected="false">Target keywords</button>' +
+              '<button class="tab" role="tab" data-rank="cities" aria-selected="false">By city</button>' +
             '</div>' +
+            '<div class="kw-filter" hidden style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px"></div>' +
             '<div style="overflow-x:auto"><table class="data-tbl wrap-first"></table></div>' +
             '<p class="field-hint" style="margin:10px 0 0"></p>';
 
@@ -4853,9 +4858,103 @@
             }
           };
 
+          /* ── Target keywords ──────────────────────────────────
+             The two tabs above only show queries Search Console
+             already has a row for. A keyword you rank nowhere for
+             draws no impressions and so has no row — invisible in
+             exactly the data you would use to look for it. These two
+             tabs work the other way round: start from the list of
+             terms that matter and say which are missing.
+             ─────────────────────────────────────────────────────── */
+          var T = k.tracked;
+          var kwFilter = rhost.querySelector('.kw-filter');
+          var rankGroup = 'all';
+
+          // "not seen" is a finding, not a blank. It reads as a row so it
+          // cannot be mistaken for a rendering gap.
+          var posCol = { key: 'position', label: 'Position', fmt: function (v) {
+            return v === null || v === undefined ? 'not seen' : fmtPos(v);
+          } };
+          var matchCol = { key: 'match', label: 'Match', fmt: function (v) {
+            return v === 'exact' ? 'exact' : v === 'variant' ? 'variant' : '—';
+          } };
+
+          function trackedRows() {
+            var all = (T && T.items) || [];
+            var list = rankGroup === 'all' ? all : all.filter(function (i) { return i.group === rankGroup; });
+            // Ranked first, best position first; the unseen fall to the bottom
+            // ordered by nothing useful, so they sort alphabetically.
+            return list.slice().sort(function (a, b) {
+              var an = a.position === null, bn = b.position === null;
+              if (an !== bn) return an ? 1 : -1;
+              if (!an) return a.position - b.position || b.impressions - a.impressions;
+              return a.term.localeCompare(b.term);
+            });
+          }
+
+          if (T) {
+            RANK_VIEWS.targets = {
+              rows: trackedRows,
+              limit: 40,
+              empty: 'No keywords on the list yet.',
+              cols: [
+                { key: 'term', label: 'Target keyword' },
+                { key: 'groupLabel', label: 'Group' },
+                posCol,
+                moveCol,
+                matchCol,
+                { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+                { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+              ]
+            };
+            RANK_VIEWS.cities = {
+              rows: T.cities,
+              limit: 100,
+              empty: 'No cities on the list yet.',
+              cols: [
+                { key: 'city', label: 'City' },
+                { key: 'best', label: 'Best position', fmt: function (v) {
+                  return v === null || v === undefined ? 'not seen' : fmtPos(v);
+                } },
+                { key: 'seen', label: 'Terms ranking', fmt: function (v, r) {
+                  return v + ' of ' + r.total;
+                } },
+                { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+                { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+              ]
+            };
+
+            // One chip per group, plus All. Filtering matters here because the
+            // city terms outnumber everything else nine to one.
+            var chips = [{ key: 'all', label: 'All', total: T.total, seen: T.seen }]
+              .concat((T.groups || []).map(function (g) {
+                return { key: g.key, label: g.label, total: g.total, seen: g.seen };
+              }));
+            chips.forEach(function (c) {
+              var b = document.createElement('button');
+              b.className = 'tab';
+              b.type = 'button';
+              b.setAttribute('data-kwgroup', c.key);
+              b.setAttribute('aria-selected', c.key === 'all' ? 'true' : 'false');
+              b.textContent = c.label + ' ' + c.seen + '/' + c.total;
+              kwFilter.appendChild(b);
+            });
+            kwFilter.addEventListener('click', function (ev) {
+              var t = ev.target.closest('[data-kwgroup]');
+              if (!t) return;
+              this.querySelectorAll('.tab').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+              t.setAttribute('aria-selected', 'true');
+              rankGroup = t.getAttribute('data-kwgroup');
+              drawRankTable('targets');
+            });
+          }
+
           function drawRankTable(which) {
             var v = RANK_VIEWS[which];
-            var rows = v.rows.slice(0, 12);
+            if (!v) return;
+            kwFilter.hidden = which !== 'targets';
+            var source = typeof v.rows === 'function' ? v.rows() : v.rows;
+            var rows = source.slice(0, v.limit || 12);
             renderTable(rhost.querySelector('table'), v.cols, rows, v.empty, true);
             // Colour the move column wherever it sits in this table.
             var moveAt = v.cols.indexOf(moveCol);
@@ -4867,6 +4966,43 @@
               cell.style.color = row.delta > 0 ? 'var(--good-text)' : 'var(--critical-text)';
               cell.style.fontWeight = '600';
             });
+
+            // Colour "not seen" so a gap in coverage reads as one at a glance.
+            var posAt = v.cols.indexOf(posCol);
+            if (posAt > -1) {
+              rhost.querySelectorAll('tbody tr').forEach(function (tr) {
+                var cell = tr.children[posAt];
+                if (cell && cell.textContent === 'not seen') cell.style.color = 'var(--ink-3)';
+              });
+            }
+
+            rhost.querySelector('.field-hint').textContent = hintFor(which, source.length);
+          }
+
+          // Each tab is measuring a different thing, so each gets its own
+          // sentence rather than one caption that is only true for the first.
+          function hintFor(which, shown) {
+            var tail = ' Search Console publishes two days behind, so the window ends ' +
+              k.window.endDate + '.';
+            if (which === 'targets' && T) {
+              return T.seen + ' of ' + T.total + ' tracked keywords drew an impression · ' +
+                T.top10 + ' on page one · ' + T.top3 + ' in the top three. ' +
+                'The rest drew none at all, which is not the same as a measured position of 101 — ' +
+                'Google reports a position only where it served an impression.' + tail;
+            }
+            if (which === 'cities' && T) {
+              var silent = T.cities.filter(function (c) { return c.seen === 0; }).length;
+              return T.cities.length + ' cities on the list · ' + (T.cities.length - silent) +
+                ' where something ranks · ' + silent + ' with no impressions on any term.' + tail;
+            }
+            return k.improved + ' improved · ' + k.declined + ' declined · ' + k.newQueries +
+              ' new · ' + k.lost + ' dropped out.' + tail;
+          }
+
+          // A tab that cannot draw anything is worse than no tab.
+          if (!T) {
+            rhost.querySelectorAll('[data-rank="targets"], [data-rank="cities"]')
+              .forEach(function (b) { b.hidden = true; });
           }
 
           rhost.querySelector('.tabs').addEventListener('click', function (ev) {
@@ -4877,11 +5013,6 @@
             drawRankTable(t.getAttribute('data-rank'));
           });
           drawRankTable('top');
-
-          rhost.querySelector('.field-hint').textContent =
-            k.improved + ' improved · ' + k.declined + ' declined · ' + k.newQueries +
-            ' new · ' + k.lost + ' dropped out. Search Console publishes two days behind, so the ' +
-            'window ends ' + k.window.endDate + '.';
         }
         // The chips were transcribed from the Semrush screenshot — root
         // domain, United States, Desktop. Search Console reports every device
