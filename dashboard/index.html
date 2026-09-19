@@ -416,6 +416,7 @@
   /* Metric grids */
   .metrics { display: grid; gap: 12px 18px; }
   .metrics-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .metrics-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
   .metric { display: grid; gap: 2px; align-content: start; }
   .metric-label { display: flex; align-items: center; gap: 5px; }
   .metric-val {
@@ -839,7 +840,7 @@
     .connect-art { max-width: 220px; }
   }
   @media (max-width: 620px) {
-    .metrics-3 { grid-template-columns: minmax(0,1fr); }
+    .metrics-3, .metrics-4 { grid-template-columns: minmax(0,1fr); }
     .vdivide { border-left: 0; padding-left: 0; }
     .ring-wrap { grid-template-columns: minmax(0,1fr); justify-items: center; }
     .canvas, .topbar-row, .title-row, .snapshot-strip { padding-left: 14px; padding-right: 14px; }
@@ -1937,6 +1938,17 @@
           </section>
         </div>
       </div>
+    </main>
+
+    <!-- Every "View full report" button lands here. The page is built at click
+         time from whatever data the dashboard already holds, so a report can
+         never show more than the app actually knows. -->
+    <main class="canvas view" id="view-report" hidden>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:4px">
+        <button class="btn" id="btnReportBack">&larr; Back to dashboard</button>
+        <span class="status-pill" id="reportSource"><i></i></span>
+      </div>
+      <div id="reportBody"></div>
     </main>
   </div>
 </div>
@@ -4705,6 +4717,11 @@
   function applyLiveDashboard(d) {
     var touched = [];
     lastLiveFeed = d;
+    // A report left open while the data refreshes would otherwise keep showing
+    // the figures from the fetch before it.
+    if (lastReport && $('view-report') && !$('view-report').hidden) {
+      setTimeout(function () { openReport(lastReport); }, 0);
+    }
 
     // Real Semrush figures from the export. Google's live numbers, applied
     // below, take precedence where they measure the same thing.
@@ -4901,7 +4918,11 @@
                 { key: 'term', label: 'Target keyword' },
                 { key: 'groupLabel', label: 'Group' },
                 posCol,
-                moveCol,
+                // Same reasoning as the full report: never ranked is not "new".
+                { key: 'delta', label: 'Move', fmt: function (v, r) {
+                  if (r.position === null || r.position === undefined) return '—';
+                  return moveCol.fmt(v);
+                } },
                 matchCol,
                 { key: 'clicks', label: 'Clicks', fmt: fmtInt },
                 { key: 'impressions', label: 'Impr.', fmt: fmtInt }
@@ -4956,8 +4977,10 @@
             var source = typeof v.rows === 'function' ? v.rows() : v.rows;
             var rows = source.slice(0, v.limit || 12);
             renderTable(rhost.querySelector('table'), v.cols, rows, v.empty, true);
-            // Colour the move column wherever it sits in this table.
-            var moveAt = v.cols.indexOf(moveCol);
+            // Colour the move column wherever it sits in this table. Matched by
+            // label, because the targets tab uses its own copy of it.
+            var moveAt = -1;
+            v.cols.forEach(function (c, i) { if (c.label === 'Move') moveAt = i; });
             rhost.querySelectorAll('tbody tr').forEach(function (tr, i) {
               var cell = tr.children[moveAt];
               var row = rows[i];
@@ -5285,6 +5308,11 @@
       crumb: 'Google Data', tag: 'Setup',
       title: 'Connections &amp; API keys',
       strip: 'Credentials live in this browser and are sent only to Google. Nothing is uploaded anywhere else.'
+    },
+    report: {
+      crumb: 'Reports', tag: 'Full report',
+      title: 'Report',
+      strip: 'Everything behind the card on the dashboard, with nothing trimmed to fit.'
     }
   };
 
@@ -5345,19 +5373,341 @@
     while (toastHost.children.length > 3) toastHost.firstChild.remove();
   }
 
-  // "View full report" has no destination yet — say so instead of doing nothing.
+  /* ── Full reports ───────────────────────────────────────────
+     Each "View full report" button opens the whole of whatever
+     sits behind its card. The card is the summary; this is the
+     rest. Where a card has no data underneath it — because the
+     source is not connected, or was transcribed from a screenshot
+     — the report says that instead of inventing rows to fill a
+     page, and names what would have to happen to fill it.
+     ─────────────────────────────────────────────────────────── */
+  var REPORTS = {
+    'Organic Rankings': 'rankings',
+    'Backlinks': 'backlinks',
+    'Backlink Audit': 'backlinkAudit',
+    'On Page SEO Checker': 'onpage',
+    'Listing Management': 'listings'
+  };
+  var lastReport = null;
+
+  function rSection(title, lede) {
+    var s = document.createElement('section');
+    s.className = 'w';
+    s.style.marginBottom = '16px';
+    var head = document.createElement('div');
+    head.className = 'w-head';
+    var h = document.createElement('h3');
+    h.textContent = title;
+    head.appendChild(h);
+    s.appendChild(head);
+    var body = document.createElement('div');
+    body.className = 'w-body';
+    if (lede) {
+      var p = document.createElement('p');
+      p.className = 'field-hint';
+      p.style.margin = '0 0 10px';
+      p.textContent = lede;
+      body.appendChild(p);
+    }
+    s.appendChild(body);
+    s.body = body;
+    return s;
+  }
+
+  function rTable(cols, rows, empty) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'overflow-x:auto';
+    var t = document.createElement('table');
+    t.className = 'data-tbl wrap-first';
+    wrap.appendChild(t);
+    renderTable(t, cols, rows, empty, true);
+    return wrap;
+  }
+
+  function reportMissing(body, what, why, how) {
+    var n = document.createElement('div');
+    n.className = 'note';
+    n.setAttribute('data-tone', 'warn');
+    n.innerHTML = '<span class="note-glyph">!</span><span></span>';
+    n.lastChild.appendChild(document.createTextNode(why));
+    body.appendChild(n);
+    if (how) {
+      var p = document.createElement('p');
+      p.className = 'field-hint';
+      p.style.margin = '12px 0 0';
+      p.textContent = how;
+      body.appendChild(p);
+    }
+    return what;
+  }
+
+  function buildRankings(host, d) {
+    var k = d && d.rankings;
+    if (!k || !k.keywords) {
+      var s = rSection('Organic Rankings');
+      reportMissing(s.body, null,
+        'Search Console has not returned any queries. Connect the property on the Connections screen, or ' +
+        'pick a different window — Google publishes two days behind and a brand new property has nothing yet.');
+      host.appendChild(s);
+      return 'No data';
+    }
+    var T = k.tracked;
+
+    var sum = rSection('Where you stand',
+      'Search Console, ' + k.window.startDate + ' to ' + k.window.endDate + ' on ' +
+      k.property.replace(/^sc-domain:/, '') + '.');
+    var kpi = document.createElement('div');
+    kpi.className = 'metrics metrics-4';
+    sum.body.appendChild(kpi);
+    renderKpis(kpi, [
+      { key: 'a', label: 'Queries with impressions', value: fmtInt(k.keywords) },
+      { key: 'b', label: 'On page one', value: fmtInt(k.top10) },
+      { key: 'c', label: 'Improved', value: fmtInt(k.improved) },
+      { key: 'd', label: 'Declined', value: fmtInt(k.declined) }
+    ], null, function () {});
+    host.appendChild(sum);
+
+    if (T) {
+      var tr = rSection('Target keywords — all ' + fmtInt(T.total),
+        T.seen + ' drew an impression · ' + T.top10 + ' on page one · ' + T.top3 + ' in the top three. ' +
+        'A term with no row drew no impressions at all, which is not the same as a measured position of 101 — ' +
+        'Google reports a position only where it served an impression.');
+
+      var search = document.createElement('input');
+      search.className = 'input';
+      search.type = 'search';
+      search.placeholder = 'Filter these keywords…';
+      search.style.cssText = 'max-width:320px;margin-bottom:10px';
+      tr.body.appendChild(search);
+
+      var holder = document.createElement('div');
+      tr.body.appendChild(holder);
+
+      var cols = [
+        { key: 'term', label: 'Target keyword' },
+        { key: 'groupLabel', label: 'Group' },
+        { key: 'position', label: 'Position', fmt: function (v) {
+          return v === null || v === undefined ? 'not seen' : fmtPos(v); } },
+        // "new" means it appeared this period. A term that has never drawn an
+        // impression has not appeared, so it gets a dash, not a debut.
+        { key: 'delta', label: 'Move', fmt: function (v, r) {
+          if (r.position === null || r.position === undefined) return '—';
+          if (v === null || v === undefined) return 'new';
+          if (Math.abs(v) < 0.1) return '—';
+          return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1); } },
+        { key: 'match', label: 'Match', fmt: function (v) { return v === 'none' ? '—' : v; } },
+        { key: 'via', label: 'Matched query', fmt: function (v) { return v || '—'; } },
+        { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+        { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+      ];
+      var sorted = T.items.slice().sort(function (a, b) {
+        var an = a.position === null, bn = b.position === null;
+        if (an !== bn) return an ? 1 : -1;
+        if (!an) return a.position - b.position || b.impressions - a.impressions;
+        return a.term.localeCompare(b.term);
+      });
+      function drawTargets() {
+        var q = search.value.trim().toLowerCase();
+        var rows = q ? sorted.filter(function (i) {
+          return i.term.toLowerCase().indexOf(q) > -1 ||
+                 String(i.groupLabel || '').toLowerCase().indexOf(q) > -1;
+        }) : sorted;
+        holder.innerHTML = '';
+        holder.appendChild(rTable(cols, rows, 'Nothing on the list matches that.'));
+        var c = document.createElement('p');
+        c.className = 'field-hint';
+        c.style.margin = '8px 0 0';
+        c.textContent = 'Showing ' + fmtInt(rows.length) + ' of ' + fmtInt(sorted.length) + ' keywords.';
+        holder.appendChild(c);
+      }
+      search.addEventListener('input', drawTargets);
+      drawTargets();
+      host.appendChild(tr);
+
+      var cs = rSection('By city — all ' + fmtInt(T.cities.length),
+        'Best position across that city\'s terms. ' +
+        T.cities.filter(function (c) { return c.seen === 0; }).length +
+        ' cities drew no impressions on any term.');
+      cs.body.appendChild(rTable([
+        { key: 'city', label: 'City' },
+        { key: 'best', label: 'Best position', fmt: function (v) {
+          return v === null || v === undefined ? 'not seen' : fmtPos(v); } },
+        { key: 'seen', label: 'Terms ranking', fmt: function (v, r) { return v + ' of ' + r.total; } },
+        { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+        { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+      ], T.cities, 'No cities on the list.'));
+      host.appendChild(cs);
+    }
+
+    var mv = rSection('Biggest moves', 'Every query that shifted by a full position between the two windows.');
+    mv.body.appendChild(rTable([
+      { key: 'query', label: 'Keyword' },
+      { key: 'from', label: 'Was', fmt: fmtPos },
+      { key: 'to', label: 'Now', fmt: fmtPos },
+      { key: 'delta', label: 'Move', fmt: function (v) {
+        return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1); } },
+      { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+      { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+    ], k.movers, 'No query moved by a full position this period.'));
+    host.appendChild(mv);
+
+    var tq = rSection('Queries earning clicks', 'What Search Console actually sent people through on.');
+    tq.body.appendChild(rTable([
+      { key: 'query', label: 'Keyword' },
+      { key: 'position', label: 'Position', fmt: fmtPos },
+      { key: 'was', label: 'Was', fmt: function (v) { return v === null ? 'new' : fmtPos(v); } },
+      { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+      { key: 'impressions', label: 'Impr.', fmt: fmtInt },
+      { key: 'ctr', label: 'CTR', fmt: function (v) { return isNum(v) ? v.toFixed(1) + '%' : '—'; } }
+    ], k.topQueries, 'No queries with impressions in this window.'));
+    host.appendChild(tq);
+    return 'Search Console';
+  }
+
+  function buildBacklinks(host, d) {
+    var bl = d && d.backlinks;
+    var src = (d && d.sources && d.sources.backlinks) || 'unavailable';
+    var s = rSection('Link profile');
+    if (bl) {
+      var kpi = document.createElement('div');
+      kpi.className = 'metrics metrics-4';
+      s.body.appendChild(kpi);
+      renderKpis(kpi, [
+        { key: 'a', label: 'Backlinks', value: fmtInt(bl.backlinks) },
+        { key: 'b', label: 'Referring domains', value: fmtInt(bl.referringDomains) },
+        { key: 'c', label: 'Referring IPs', value: fmtInt(bl.referringIps) },
+        { key: 'd', label: 'Follow links', value: isNum(bl.followShare) ? Math.round(bl.followShare) + '%' : '—' }
+      ], null, function () {});
+      host.appendChild(s);
+
+      if (bl.topDomains && bl.topDomains.length) {
+        var dm = rSection('Referring domains', bl.bandsFrom < bl.referringDomains
+          ? 'The ' + bl.bandsFrom + ' domains sending the most links, of ' + fmtInt(bl.referringDomains) + ' in total.'
+          : 'All ' + fmtInt(bl.referringDomains) + ' referring domains.');
+        dm.body.appendChild(rTable([
+          { key: 'domain', label: 'Domain' },
+          { key: 'authority', label: 'Authority' },
+          { key: 'backlinks', label: 'Links', fmt: fmtInt }
+        ], bl.topDomains, 'None returned.'));
+        host.appendChild(dm);
+      }
+      if (bl.recent && bl.recent.length) {
+        var rc = rSection('Most recent links', 'Newest first, as Semrush last saw them.');
+        rc.body.appendChild(rTable([
+          { key: 'from', label: 'Linking page' },
+          { key: 'anchor', label: 'Anchor', fmt: function (v) { return v || '(none)'; } },
+          { key: 'nofollow', label: 'Follow', fmt: function (v) { return v ? 'nofollow' : 'follow'; } },
+          { key: 'firstSeen', label: 'First seen' },
+          { key: 'lastSeen', label: 'Last seen' }
+        ], bl.recent, 'None returned.'));
+        host.appendChild(rc);
+      }
+      return src === 'api' ? 'Semrush API' : 'Semrush snapshot';
+    }
+    reportMissing(s.body, null,
+      'No link data is loaded. The Semrush API key on the Connections screen has no API units left, so the ' +
+      'live call cannot run, and no export has been read in its place.',
+      'Two ways to fill this: top up Semrush API units, or export Referring Domains from Semrush to Google ' +
+      'Drive — the shared console page already reads that export and breaks the profile down by authority ' +
+      'and by shared IP address.');
+    host.appendChild(s);
+    return 'No data';
+  }
+
+  function buildBacklinkAudit(host, d) {
+    var s = rSection('Backlink Audit');
+    reportMissing(s.body, null,
+      'The toxicity scores on that card were transcribed from a Semrush screenshot. There is no live source ' +
+      'behind them, so there is no fuller version to show — a longer table here would be made up.',
+      'The real version needs Semrush API units for the Backlink Audit endpoint. Without them, the nearest ' +
+      'thing that is real is the shared console page, which finds link networks from your Referring Domains ' +
+      'export by grouping domains onto shared IP addresses.');
+    host.appendChild(s);
+
+    var bl = d && d.backlinks;
+    if (bl) {
+      var real = rSection('What is real right now', 'From the Semrush figures the app does have.');
+      var kpi = document.createElement('div');
+      kpi.className = 'metrics metrics-3';
+      real.body.appendChild(kpi);
+      renderKpis(kpi, [
+        { key: 'a', label: 'Backlinks', value: fmtInt(bl.backlinks) },
+        { key: 'b', label: 'Referring domains', value: fmtInt(bl.referringDomains) },
+        { key: 'c', label: 'Referring IPs', value: fmtInt(bl.referringIps) }
+      ], null, function () {});
+      host.appendChild(real);
+    }
+    return 'Not connected';
+  }
+
+  function buildListings(host) {
+    var s = rSection('Listing Management');
+    reportMissing(s.body, null,
+      'This card is a Semrush feature that was never wired up. Listing Management tracks your business ' +
+      'details across directories like Google Business Profile, Apple Maps, Yelp and Bing Places, and ' +
+      'nothing in this app reads any of them.',
+      'It would need either a Semrush subscription that includes Listing Management, or a direct connection ' +
+      'to Google Business Profile. Say the word and I can wire up the Google Business Profile side, which ' +
+      'is the one that matters most for a local buyer.');
+    host.appendChild(s);
+    return 'Not built';
+  }
+
+  function openReport(kind) {
+    var host = $('reportBody');
+    host.innerHTML = '';
+    var d = lastLiveFeed;
+    var title, source;
+    if (kind === 'rankings') {
+      title = 'Organic Rankings';
+      source = buildRankings(host, d);
+    } else if (kind === 'backlinks') {
+      title = 'Backlinks';
+      source = buildBacklinks(host, d);
+    } else if (kind === 'backlinkAudit') {
+      title = 'Backlink Audit';
+      source = buildBacklinkAudit(host, d);
+    } else if (kind === 'listings') {
+      title = 'Listing Management';
+      source = buildListings(host);
+    } else {
+      return;
+    }
+    lastReport = kind;
+    VIEW_META.report.title = title + ': <span class="domain">' +
+      ((d && d.rankings && d.rankings.property) || 'www.twinhomebuyer.com').replace(/^sc-domain:/, '') + '</span>';
+    showView('report');
+    setPill($('reportSource'),
+      source === 'No data' || source === 'Not connected' || source === 'Not built' ? 'warn' : 'ok', source);
+  }
+
+  // On-page checks are a crawl, not a stored report, so that button goes to
+  // the screen that runs one rather than to a page describing it.
   document.querySelectorAll('.w-foot .btn').forEach(function (b) {
-    if (b.hasAttribute('data-soon')) return;
     var w = b.closest('.w');
     var h = w && w.querySelector('.w-head h3');
-    var name = h ? h.textContent.trim() : 'This';
-    b.setAttribute('data-soon', 'The full ' + name + ' report lands once the Semrush export is wired in.');
+    var name = h ? h.textContent.trim().replace(/\s*—.*$/, '') : '';
+    var kind = REPORTS[name];
+    if (kind === 'onpage') {
+      b.setAttribute('data-view', 'audit');
+      b.textContent = 'Open Site Audit';
+      b.title = 'On-page checks come from a crawl. Site Audit runs one and reports every finding.';
+      return;
+    }
+    if (kind) {
+      b.setAttribute('data-report', kind);
+      b.title = 'Open the full ' + name + ' report';
+    }
   });
 
   document.addEventListener('click', function (ev) {
+    var r = ev.target.closest && ev.target.closest('[data-report]');
+    if (r) { openReport(r.getAttribute('data-report')); return; }
     var t = ev.target.closest && ev.target.closest('[data-soon]');
     if (t) toast(t.getAttribute('data-soon'));
   });
+
+  $('btnReportBack').addEventListener('click', function () { showView('dashboard'); });
 
   $('btnShare').addEventListener('click', function () {
     var url = location.href;
