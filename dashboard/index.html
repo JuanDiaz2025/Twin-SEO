@@ -893,6 +893,7 @@
         <span class="eyebrow">Competitive Analysis</span>
         <button class="nav-item" data-target="w-seo"><span class="dot"></span>Domain Overview</button>
         <button class="nav-item" data-target="w-rankings"><span class="dot"></span>Organic Rankings</button>
+        <button class="nav-item" data-report="compare"><span class="dot"></span>Before &amp; after</button>
         <button class="nav-item"><span class="dot"></span>Compare Domains</button>
         <button class="nav-item"><span class="dot"></span>Top Pages</button>
         <button class="nav-item"><span class="dot"></span>Keyword Gap</button>
@@ -1334,7 +1335,10 @@
                 <span><i style="background:var(--critical)"></i>Declined</span>
               </div>
             </div>
-            <div class="w-foot"><button class="btn">View full report</button></div>
+            <div class="w-foot" style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn">View full report</button>
+              <button class="btn" data-report="compare">Before &amp; after</button>
+            </div>
           </section>
 
           <section class="w" id="w-backlinks">
@@ -5381,6 +5385,38 @@
      — the report says that instead of inventing rows to fill a
      page, and names what would have to happen to fill it.
      ─────────────────────────────────────────────────────────── */
+  /* ── Before and after ───────────────────────────────────────
+     "Did the work pay off" is a different question from "how are
+     we doing lately", and the rolling window cannot answer it.
+     This one takes two fixed ranges and reports the change.
+     ─────────────────────────────────────────────────────────── */
+  // The dates the work stopped and restarted. Both are editable on the report.
+  var WORK_STOPPED = '2026-07-01';
+  var WORK_STARTED = '2026-08-31';
+
+  function shiftDate(iso, days) {
+    var d = new Date(iso + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+  function spanDays(a, b) {
+    return Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+  }
+
+  // Search Console publishes two days behind, so "up to today" would compare a
+  // full window against one missing its last two days.
+  function defaultCompare() {
+    var afterEnd = shiftDate(new Date().toISOString().slice(0, 10), -2);
+    if (afterEnd < WORK_STARTED) afterEnd = WORK_STARTED;
+    var len = Math.max(1, spanDays(WORK_STARTED, afterEnd));
+    return {
+      beforeStart: shiftDate(WORK_STOPPED, -(len - 1)),
+      beforeEnd: WORK_STOPPED,
+      afterStart: WORK_STARTED,
+      afterEnd: afterEnd
+    };
+  }
+
   var REPORTS = {
     'Organic Rankings': 'rankings',
     'Backlinks': 'backlinks',
@@ -5653,11 +5689,242 @@
     return 'Not built';
   }
 
+  function kpiValue(fmt, v) {
+    if (!isNum(v)) return '—';
+    if (fmt === 'int') return fmtInt(Math.round(v));
+    if (fmt === 'pct') return v.toFixed(1) + '%';
+    return v.toFixed(1);
+  }
+
+  // A KPI tile that says which way is good. Average position improves by
+  // falling, so a single "up is green" rule would score the best result red.
+  function kpiTile(k) {
+    var good = k.better === 'down' ? k.v.diff < 0 : k.v.diff > 0;
+    var flat = Math.abs(k.v.diff) < (k.fmt === 'int' ? 0.5 : 0.05);
+    var tile = document.createElement('div');
+    tile.className = 'kpi';
+    tile.style.cssText = 'padding:12px 14px';
+    var lab = document.createElement('div');
+    lab.className = 'eyebrow';
+    lab.textContent = k.label;
+    tile.appendChild(lab);
+    var big = document.createElement('div');
+    big.style.cssText = 'font-size:26px;font-weight:650;line-height:1.15;margin-top:4px';
+    big.textContent = kpiValue(k.fmt, k.v.to);
+    tile.appendChild(big);
+    var sub = document.createElement('div');
+    sub.style.cssText = 'font-size:12.5px;margin-top:3px';
+    if (flat) {
+      sub.style.color = 'var(--ink-3)';
+      sub.textContent = 'unchanged from ' + kpiValue(k.fmt, k.v.from);
+    } else {
+      sub.style.color = good ? 'var(--good-text)' : 'var(--critical-text)';
+      var arrow = k.v.diff > 0 ? '▲ ' : '▼ ';
+      var pct = k.v.fromZero ? 'from nothing'
+        : isNum(k.v.pct) ? Math.abs(k.v.pct).toFixed(0) + '%' : '';
+      sub.textContent = arrow + kpiValue(k.fmt, Math.abs(k.v.diff)) +
+        (pct ? ' · ' + pct : '') + ' · was ' + kpiValue(k.fmt, k.v.from);
+    }
+    tile.appendChild(sub);
+    return tile;
+  }
+
+  function buildCompare(host, c, dates) {
+    var form = rSection('Before and after',
+      'Pick the two periods to compare. Search Console publishes about two days behind, ' +
+      'so the later window ends there rather than today.');
+    var grid = document.createElement('div');
+    grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end';
+    [['beforeStart', 'Before: from'], ['beforeEnd', 'Before: to'],
+     ['afterStart', 'After: from'], ['afterEnd', 'After: to']].forEach(function (f) {
+      var wrap = document.createElement('div');
+      wrap.className = 'field';
+      wrap.style.cssText = 'margin:0;min-width:150px';
+      var l = document.createElement('label');
+      l.textContent = f[1];
+      l.setAttribute('for', 'cmp_' + f[0]);
+      var i = document.createElement('input');
+      i.className = 'input';
+      i.type = 'date';
+      i.id = 'cmp_' + f[0];
+      i.value = dates[f[0]];
+      wrap.appendChild(l); wrap.appendChild(i);
+      grid.appendChild(wrap);
+    });
+    var go = document.createElement('button');
+    go.className = 'btn btn-primary';
+    go.id = 'cmpRun';
+    go.textContent = 'Compare';
+    grid.appendChild(go);
+    form.body.appendChild(grid);
+    var out = document.createElement('p');
+    out.className = 'field-hint';
+    out.id = 'cmpOut';
+    out.style.margin = '10px 0 0';
+    form.body.appendChild(out);
+    host.appendChild(form);
+
+    if (!c) return;
+
+    if (!c.comparable) {
+      var warn = document.createElement('div');
+      warn.className = 'note';
+      warn.setAttribute('data-tone', 'warn');
+      warn.innerHTML = '<span class="note-glyph">!</span><span></span>';
+      warn.lastChild.textContent = 'The two windows are different lengths — ' + c.before.days +
+        ' days against ' + c.after.days + '. Totals will favour the longer one, so read the ' +
+        'per-day rows and the position figures rather than the raw clicks.';
+      warn.style.marginBottom = '16px';
+      host.appendChild(warn);
+    }
+
+    var head = rSection('The numbers',
+      c.before.startDate + ' → ' + c.before.endDate + ' (' + c.before.days + ' days) compared with ' +
+      c.after.startDate + ' → ' + c.after.endDate + ' (' + c.after.days + ' days). ' +
+      'Big number is the later window; the line under it is the change.');
+    var g = document.createElement('div');
+    g.style.cssText = 'display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))';
+    c.kpis.forEach(function (k) { g.appendChild(kpiTile(k)); });
+    head.body.appendChild(g);
+    host.appendChild(head);
+
+    var T = c.tracked;
+    if (T) {
+      var tk = rSection('Your target keywords',
+        'The same comparison against the ' + fmtInt(T.total) + ' keywords on your list, which is the ' +
+        'measure that speaks to intent rather than to whatever Google happened to show you for.');
+      var tg = document.createElement('div');
+      tg.style.cssText = 'display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))';
+      [{ label: 'Tracked keywords ranking', better: 'up', fmt: 'int', v: T.seen },
+       { label: 'On page one', better: 'up', fmt: 'int', v: T.top10 },
+       { label: 'In the top three', better: 'up', fmt: 'int', v: T.top3 },
+       { label: 'Cities with any visibility', better: 'up', fmt: 'int', v: T.citiesSeen }
+      ].forEach(function (k) { tg.appendChild(kpiTile(k)); });
+      tk.body.appendChild(tg);
+      host.appendChild(tk);
+
+      if (T.newlyRanking.length) {
+        var nr = rSection('Target keywords that started ranking',
+          T.newlyRanking.length + ' on your list drew impressions in the later window and none in the earlier one.');
+        nr.body.appendChild(rTable([
+          { key: 'term', label: 'Keyword' },
+          { key: 'group', label: 'Group' },
+          { key: 'position', label: 'Position', fmt: fmtPos },
+          { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+        ], T.newlyRanking, ''));
+        host.appendChild(nr);
+      }
+      if (T.stoppedRanking.length) {
+        var sr = rSection('Target keywords that stopped ranking',
+          T.stoppedRanking.length + ' drew impressions before and none since.');
+        sr.body.appendChild(rTable([
+          { key: 'term', label: 'Keyword' },
+          { key: 'group', label: 'Group' },
+          { key: 'position', label: 'Was at', fmt: fmtPos },
+          { key: 'impressions', label: 'Impr. then', fmt: fmtInt }
+        ], T.stoppedRanking, ''));
+        host.appendChild(sr);
+      }
+    }
+
+    var mv = rSection('Biggest movers',
+      c.improved + ' queries climbed and ' + c.declined + ' slipped by a full position or more.');
+    mv.body.appendChild(rTable([
+      { key: 'query', label: 'Keyword' },
+      { key: 'from', label: 'Was', fmt: fmtPos },
+      { key: 'to', label: 'Now', fmt: fmtPos },
+      { key: 'delta', label: 'Move', fmt: function (v) {
+        return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1); } },
+      { key: 'clicksBefore', label: 'Clicks then', fmt: fmtInt },
+      { key: 'clicks', label: 'Clicks now', fmt: fmtInt }
+    ], c.movers, 'No query moved by a full position between the two windows.'));
+    host.appendChild(mv);
+
+    var gn = rSection('Keywords you did not have before',
+      fmtInt(c.gainedCount) + ' queries drew impressions in the later window and none in the earlier one.');
+    gn.body.appendChild(rTable([
+      { key: 'query', label: 'Keyword' },
+      { key: 'position', label: 'Position', fmt: fmtPos },
+      { key: 'clicks', label: 'Clicks', fmt: fmtInt },
+      { key: 'impressions', label: 'Impr.', fmt: fmtInt }
+    ], c.gained, 'No new queries.'));
+    host.appendChild(gn);
+
+    var ls = rSection('Keywords you had and lost',
+      fmtInt(c.lostCount) + ' queries drew impressions in the earlier window and none since.');
+    ls.body.appendChild(rTable([
+      { key: 'query', label: 'Keyword' },
+      { key: 'position', label: 'Was at', fmt: fmtPos },
+      { key: 'clicks', label: 'Clicks then', fmt: fmtInt },
+      { key: 'impressions', label: 'Impr. then', fmt: fmtInt }
+    ], c.lost, 'Nothing dropped out.'));
+    host.appendChild(ls);
+  }
+
+  var compareCache = null;
+  function runCompare(dates) {
+    var host = $('reportBody');
+    host.innerHTML = '';
+    buildCompare(host, compareCache, dates);
+    wireCompareForm(dates);
+    if (!SERVER) {
+      say('cmpOut', 'This comparison runs on the app’s server, so it needs Twin SEO running rather ' +
+        'than this page opened from a file.', 'err');
+      return;
+    }
+    say('cmpOut', 'Asking Search Console for both windows…');
+    srv('/api/compare?beforeStart=' + dates.beforeStart + '&beforeEnd=' + dates.beforeEnd +
+        '&afterStart=' + dates.afterStart + '&afterEnd=' + dates.afterEnd, null, 60000)
+      .then(function (c) {
+        compareCache = c;
+        host.innerHTML = '';
+        buildCompare(host, c, dates);
+        wireCompareForm(dates);
+        setPill($('reportSource'), 'ok', 'Search Console');
+      })
+      .catch(function (e) {
+        say('cmpOut', e.message, 'err');
+        setPill($('reportSource'), 'warn', 'No data');
+      });
+  }
+
+  function wireCompareForm(dates) {
+    var btn = $('cmpRun');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var next = {
+        beforeStart: $('cmp_beforeStart').value,
+        beforeEnd: $('cmp_beforeEnd').value,
+        afterStart: $('cmp_afterStart').value,
+        afterEnd: $('cmp_afterEnd').value
+      };
+      if (!next.beforeStart || !next.beforeEnd || !next.afterStart || !next.afterEnd) {
+        say('cmpOut', 'Fill in all four dates.', 'err');
+        return;
+      }
+      compareCache = null;
+      lastCompareDates = next;
+      runCompare(next);
+    });
+  }
+
+  var lastCompareDates = null;
+
   function openReport(kind) {
     var host = $('reportBody');
     host.innerHTML = '';
     var d = lastLiveFeed;
     var title, source;
+    if (kind === 'compare') {
+      lastReport = kind;
+      VIEW_META.report.title = 'Before and after: <span class="domain">' +
+        ((d && d.rankings && d.rankings.property) || 'www.twinhomebuyer.com').replace(/^sc-domain:/, '') +
+        '</span>';
+      showView('report');
+      setPill($('reportSource'), 'warn', 'Loading');
+      runCompare(lastCompareDates || defaultCompare());
+      return;
+    }
     if (kind === 'rankings') {
       title = 'Organic Rankings';
       source = buildRankings(host, d);
@@ -5684,6 +5951,7 @@
   // On-page checks are a crawl, not a stored report, so that button goes to
   // the screen that runs one rather than to a page describing it.
   document.querySelectorAll('.w-foot .btn').forEach(function (b) {
+    if (b.hasAttribute('data-report') || b.hasAttribute('data-view')) return;  // already routed
     var w = b.closest('.w');
     var h = w && w.querySelector('.w-head h3');
     var name = h ? h.textContent.trim().replace(/\s*—.*$/, '') : '';

@@ -485,6 +485,178 @@ function matchTracked(list, rows, priorPos) {
   };
 }
 
+/* ── Before and after ───────────────────────────────────────────
+   The rolling window answers "how are we doing lately". It cannot
+   answer "did the work pay off", because the thing you want to
+   compare against is a fixed date, not a sliding one — the month
+   before the work stopped, against the weeks since it restarted.
+
+   So this takes two explicit ranges and reports the change between
+   them. Clicks and impressions are summed by Google itself rather
+   than from the query rows, because Google withholds low-volume
+   queries and the rows never add up to the true total.
+   ─────────────────────────────────────────────────────────────── */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function daysBetween(a, b) {
+  return Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+}
+
+// A percentage change needs a baseline. Going from nothing to something has
+// no percentage, and reporting one as "+100%" or "+Infinity" would be worse
+// than saying so.
+function change(from, to) {
+  const diff = to - from;
+  return {
+    from, to, diff,
+    pct: from > 0 ? (diff / from) * 100 : null,
+    fromZero: from === 0 && to > 0
+  };
+}
+
+async function compareWindows(a, b) {
+  const cfg = loadConfig();
+  if (!cfg.gscSite) throw new Error('No Search Console property set.');
+  const endpoint = GSC_API + '/webmasters/v3/sites/' +
+    encodeURIComponent(cfg.gscSite) + '/searchAnalytics/query';
+
+  const totals = range => google(endpoint, Object.assign({ type: 'web' }, range));
+  const queries = range => google(endpoint,
+    Object.assign({ dimensions: ['query'], rowLimit: 5000, type: 'web' }, range));
+
+  const [ta, tb, qa, qb] = await Promise.all([totals(a), totals(b), queries(a), queries(b)]);
+
+  const headline = t => {
+    const r = (t.rows || [])[0] || {};
+    return {
+      clicks: r.clicks || 0,
+      impressions: r.impressions || 0,
+      ctr: (r.ctr || 0) * 100,
+      position: r.position || 0
+    };
+  };
+
+  const shape = (range, t, q) => {
+    const rows = (q.rows || []).map(r => ({
+      query: r.keys[0], clicks: r.clicks, impressions: r.impressions,
+      ctr: (r.ctr || 0) * 100, position: r.position
+    }));
+    const imp = rows.reduce((n, r) => n + r.impressions, 0);
+    const page1 = rows.filter(r => r.position <= 10).reduce((n, r) => n + r.impressions, 0);
+    return Object.assign({
+      startDate: range.startDate,
+      endDate: range.endDate,
+      days: daysBetween(range.startDate, range.endDate),
+      queries: rows.length,
+      top3: rows.filter(r => r.position <= 3).length,
+      top10: rows.filter(r => r.position <= 10).length,
+      page1Share: imp ? (page1 / imp) * 100 : 0,
+      rows
+    }, headline(t));
+  };
+
+  const before = shape(a, ta, qa);
+  const after = shape(b, tb, qb);
+
+  // Per-day, because two windows of different lengths cannot be compared on
+  // totals alone — a longer window wins on clicks without ranking any better.
+  const perDay = (v, d) => (d > 0 ? v / d : 0);
+
+  const kpis = [
+    { key: 'clicks', label: 'Clicks', better: 'up', fmt: 'int',
+      v: change(before.clicks, after.clicks) },
+    { key: 'clicksPerDay', label: 'Clicks per day', better: 'up', fmt: 'dec',
+      v: change(perDay(before.clicks, before.days), perDay(after.clicks, after.days)) },
+    { key: 'impressions', label: 'Impressions', better: 'up', fmt: 'int',
+      v: change(before.impressions, after.impressions) },
+    { key: 'impressionsPerDay', label: 'Impressions per day', better: 'up', fmt: 'dec',
+      v: change(perDay(before.impressions, before.days), perDay(after.impressions, after.days)) },
+    { key: 'ctr', label: 'Click-through rate', better: 'up', fmt: 'pct',
+      v: change(before.ctr, after.ctr) },
+    // The one KPI where down is the win, so it is flagged rather than left to
+    // a reader to remember.
+    { key: 'position', label: 'Average position', better: 'down', fmt: 'dec',
+      v: change(before.position, after.position) },
+    { key: 'queries', label: 'Keywords with impressions', better: 'up', fmt: 'int',
+      v: change(before.queries, after.queries) },
+    { key: 'top10', label: 'Keywords on page one', better: 'up', fmt: 'int',
+      v: change(before.top10, after.top10) },
+    { key: 'top3', label: 'Keywords in the top three', better: 'up', fmt: 'int',
+      v: change(before.top3, after.top3) },
+    { key: 'page1Share', label: 'Impressions on page one', better: 'up', fmt: 'pct',
+      v: change(before.page1Share, after.page1Share) }
+  ];
+
+  // Query-level movement between the two windows.
+  const bMap = new Map();
+  before.rows.forEach(r => bMap.set(r.query, r));
+  const aMap = new Map();
+  after.rows.forEach(r => aMap.set(r.query, r));
+
+  const moved = [];
+  after.rows.forEach(r => {
+    const was = bMap.get(r.query);
+    if (!was) return;
+    moved.push({
+      query: r.query, from: was.position, to: r.position,
+      delta: was.position - r.position,                      // positive = climbed
+      clicks: r.clicks, clicksBefore: was.clicks, impressions: r.impressions
+    });
+  });
+  moved.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || y.impressions - x.impressions);
+
+  const gained = after.rows.filter(r => !bMap.has(r.query))
+    .sort((x, y) => y.impressions - x.impressions)
+    .map(r => ({ query: r.query, position: r.position, clicks: r.clicks, impressions: r.impressions }));
+  const lost = before.rows.filter(r => !aMap.has(r.query))
+    .sort((x, y) => y.impressions - x.impressions)
+    .map(r => ({ query: r.query, position: r.position, clicks: r.clicks, impressions: r.impressions }));
+
+  // The same comparison against the tracked list, which is the one that speaks
+  // to intent rather than to whatever Google happened to show the site for.
+  let tracked = null;
+  try {
+    const list = loadKeywords();
+    const beforeT = matchTracked(list, before.rows, new Map());
+    const afterT = matchTracked(list, after.rows, new Map());
+    const seenBefore = new Set(beforeT.items.filter(i => i.position != null).map(i => i.term));
+    const seenAfter = new Set(afterT.items.filter(i => i.position != null).map(i => i.term));
+    tracked = {
+      total: afterT.total,
+      seen: change(beforeT.seen, afterT.seen),
+      top10: change(beforeT.top10, afterT.top10),
+      top3: change(beforeT.top3, afterT.top3),
+      citiesSeen: change(
+        beforeT.cities.filter(c => c.seen > 0).length,
+        afterT.cities.filter(c => c.seen > 0).length),
+      newlyRanking: afterT.items
+        .filter(i => i.position != null && !seenBefore.has(i.term))
+        .sort((x, y) => x.position - y.position)
+        .map(i => ({ term: i.term, group: i.groupLabel, position: i.position, impressions: i.impressions })),
+      stoppedRanking: beforeT.items
+        .filter(i => i.position != null && !seenAfter.has(i.term))
+        .sort((x, y) => x.position - y.position)
+        .map(i => ({ term: i.term, group: i.groupLabel, position: i.position, impressions: i.impressions }))
+    };
+  } catch (e) { tracked = null; }
+
+  return {
+    property: cfg.gscSite,
+    before: Object.assign({}, before, { rows: undefined }),
+    after: Object.assign({}, after, { rows: undefined }),
+    comparable: before.days === after.days,
+    kpis,
+    improved: moved.filter(m => m.delta >= 1).length,
+    declined: moved.filter(m => m.delta <= -1).length,
+    movers: moved.slice(0, 50),
+    gained: gained.slice(0, 50),
+    gainedCount: gained.length,
+    lost: lost.slice(0, 50),
+    lostCount: lost.length,
+    tracked
+  };
+}
+
 async function gscRankings(days) {
   const cfg = loadConfig();
   if (!cfg.gscSite) throw new Error('No Search Console property set.');
@@ -1745,6 +1917,20 @@ const server = http.createServer(async (req, res) => {
       const r = await publishToDrive();
       lastPublish = { at: Date.now(), ok: true, error: '', fileId: r.id, enabled: true };
       return send(res, 200, Object.assign({ ok: true }, r));
+    }
+
+    if (route === '/api/compare') {
+      const q = n => String(url.searchParams.get(n) || '').trim();
+      const a = { startDate: q('beforeStart'), endDate: q('beforeEnd') };
+      const b = { startDate: q('afterStart'), endDate: q('afterEnd') };
+      const bad = [a.startDate, a.endDate, b.startDate, b.endDate].filter(s => !DATE_RE.test(s));
+      if (bad.length) {
+        return send(res, 400, { error: 'Give both ranges as YYYY-MM-DD dates.' });
+      }
+      if (a.startDate > a.endDate || b.startDate > b.endDate) {
+        return send(res, 400, { error: 'Each range has to start before it ends.' });
+      }
+      return send(res, 200, await compareWindows(a, b));
     }
 
     if (route === '/api/keywords' && req.method === 'GET') {
