@@ -883,6 +883,7 @@
         <button class="nav-item" data-view="gsc"><span class="dot"></span>Google Search Console</button>
         <button class="nav-item" data-view="ga4"><span class="dot"></span>Google Analytics 4</button>
         <button class="nav-item" data-view="connections"><span class="dot"></span>Connections &amp; API keys</button>
+        <button class="nav-item" data-view="health"><span class="dot"></span>What is working</button>
       </div>
       <div class="nav-group">
         <span class="eyebrow">Site Performance</span>
@@ -1942,6 +1943,31 @@
           </section>
         </div>
       </div>
+    </main>
+
+    <!-- Each row here is probed for real when the screen opens. A key being
+         saved is not the same as a key that works, and that difference is the
+         whole reason this screen exists. -->
+    <main class="canvas view" id="view-health" hidden>
+      <section class="w">
+        <div class="w-head">
+          <h3>What is working</h3>
+          <div class="w-tools">
+            <span class="status-pill" id="healthPill"><i></i>Checking…</span>
+            <button class="btn" id="btnHealthAgain">Check again</button>
+          </div>
+        </div>
+        <div class="w-body">
+          <p class="field-hint" style="margin:0 0 12px">
+            Every part of this app leans on something outside it — a Google sign-in, a property
+            id, an API key with credit left on it. This asks each one directly rather than
+            trusting what is saved.
+          </p>
+          <div class="metrics metrics-3" id="healthCounts"></div>
+          <div class="divider" style="margin:16px 0 4px"></div>
+          <div id="healthList"></div>
+        </div>
+      </section>
     </main>
 
     <!-- Every "View full report" button lands here. The page is built at click
@@ -5317,6 +5343,11 @@
       crumb: 'Reports', tag: 'Full report',
       title: 'Report',
       strip: 'Everything behind the card on the dashboard, with nothing trimmed to fit.'
+    },
+    health: {
+      crumb: 'Setup', tag: 'Status',
+      title: 'What is working',
+      strip: 'Each source asked directly, so a feature that has quietly stopped says so.'
     }
   };
 
@@ -5333,6 +5364,7 @@
     $('pageStrip').innerHTML = m.strip;
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (name === 'connections') fillForm();
+    if (name === 'health') loadHealth();
     if (name === 'aisearch') {
       var au = $('aiUrl');
       if (au && !au.value) au.value = (cfg.gscSite || 'https://www.twinhomebuyer.com/').replace(/^sc-domain:/, 'https://');
@@ -5976,6 +6008,103 @@
   });
 
   $('btnReportBack').addEventListener('click', function () { showView('dashboard'); });
+
+  /* ── What is working ────────────────────────────────────────
+     Three states, not two. "Off" is something never set up;
+     "broken" is something set up that has stopped answering.
+     Collapsing them would hide which of the two you are looking
+     at, and they need opposite responses.
+     ─────────────────────────────────────────────────────────── */
+  var HEALTH_STATE = {
+    ok:     { label: 'Working',  pill: 'ok',   dot: 'var(--good)' },
+    broken: { label: 'Broken',   pill: 'err',  dot: 'var(--critical)' },
+    off:    { label: 'Not set up', pill: 'warn', dot: 'var(--ink-3)' }
+  };
+  var healthBusy = false;
+
+  function drawHealth(h) {
+    var list = $('healthList');
+    list.innerHTML = '';
+    renderKpis($('healthCounts'), [
+      { key: 'w', label: 'Working', value: String(h.working) },
+      { key: 'b', label: 'Broken', value: String(h.broken) },
+      { key: 'o', label: 'Not set up', value: String(h.off) }
+    ], null, function () {});
+
+    // Broken first — it is the only group that needs someone today.
+    var order = { broken: 0, off: 1, ok: 2 };
+    h.items.slice().sort(function (a, b) {
+      return order[a.state] - order[b.state];
+    }).forEach(function (it) {
+      var meta = HEALTH_STATE[it.state] || HEALTH_STATE.off;
+      var row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:12px;' +
+        'align-items:start;padding:13px 0;border-bottom:1px solid var(--hairline-soft)';
+      var dot = document.createElement('span');
+      dot.style.cssText = 'width:9px;height:9px;border-radius:50%;margin-top:6px;background:' + meta.dot;
+      row.appendChild(dot);
+
+      var mid = document.createElement('div');
+      var name = document.createElement('div');
+      name.style.cssText = 'font-weight:600;font-size:14px';
+      name.textContent = it.label;
+      mid.appendChild(name);
+      var det = document.createElement('div');
+      det.style.cssText = 'font-size:13px;color:var(--ink-2);margin-top:2px';
+      det.textContent = it.detail;
+      mid.appendChild(det);
+      if (it.fix) {
+        var fix = document.createElement('div');
+        fix.style.cssText = 'font-size:12.5px;color:var(--ink-3);margin-top:3px';
+        fix.textContent = 'Fix: ' + it.fix;
+        mid.appendChild(fix);
+      }
+      row.appendChild(mid);
+
+      var pill = document.createElement('span');
+      pill.className = 'status-pill';
+      pill.setAttribute('data-state', meta.pill);
+      pill.innerHTML = '<i></i>';
+      pill.appendChild(document.createTextNode(meta.label));
+      row.appendChild(pill);
+      list.appendChild(row);
+    });
+
+    setPill($('healthPill'),
+      h.broken ? 'err' : h.working === h.total ? 'ok' : 'warn',
+      h.broken ? h.broken + ' broken' : h.working + ' of ' + h.total + ' working');
+  }
+
+  function loadHealth() {
+    if (healthBusy) return;
+    if (!SERVER) {
+      $('healthList').innerHTML = '';
+      setPill($('healthPill'), 'warn', 'Needs the app');
+      var p = document.createElement('p');
+      p.className = 'field-hint';
+      p.textContent = 'These checks run on the app’s server, so they need Twin SEO running ' +
+        'rather than this page opened from a file.';
+      $('healthList').appendChild(p);
+      return;
+    }
+    healthBusy = true;
+    setPill($('healthPill'), 'warn', 'Checking…');
+    $('healthList').innerHTML = '<p class="field-hint">Asking each source…</p>';
+    srv('/api/health', null, 60000)
+      .then(function (h) { drawHealth(h); })
+      .catch(function (e) {
+        setPill($('healthPill'), 'err', 'Check failed');
+        $('healthList').innerHTML = '';
+        var p = document.createElement('p');
+        p.className = 'field-hint';
+        p.style.color = 'var(--critical-text)';
+        p.textContent = e.message;
+        $('healthList').appendChild(p);
+      })
+      .then(function () { healthBusy = false; });
+  }
+
+  $('btnHealthAgain').addEventListener('click', loadHealth);
 
   $('btnShare').addEventListener('click', function () {
     var url = location.href;

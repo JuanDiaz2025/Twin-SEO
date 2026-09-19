@@ -48,6 +48,7 @@ const KEYWORDS_FILE = path.join(DATA_DIR, 'keywords.json');
 // Overridable so the ranking logic can be exercised against a stand-in
 // Search Console rather than the live property.
 const GSC_API = process.env.GSC_API_BASE || 'https://searchconsole.googleapis.com';
+const GA4_API = process.env.GA4_API_BASE || 'https://analyticsdata.googleapis.com';
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -764,7 +765,7 @@ async function ga4Report(days, dim) {
     err.status = 400;
     throw err;
   }
-  const endpoint = `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(cfg.ga4Property)}:runReport`;
+  const endpoint = `${GA4_API}/v1beta/properties/${encodeURIComponent(cfg.ga4Property)}:runReport`;
   const dateRanges = [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }];
 
   const [byDate, byDim] = await Promise.all([
@@ -1225,6 +1226,157 @@ function startAiScan(startUrl, maxPages, pace) {
 // Real Semrush figures, exported from the Drive folder. Live sources override
 // these wherever one is connected; they are never invented.
 const SEMRUSH_FILE = path.join(__dirname, 'semrush-snapshot.json');
+
+/* ── What is working ────────────────────────────────────────────
+   Every part of this app depends on something outside it — a
+   Google sign-in, a property id, an API key with credit on it.
+   When one of those lapses the feature does not announce itself;
+   it just shows nothing, and looks like a bug.
+
+   So this probes each one for real rather than reporting what the
+   config file claims. A key being present is not the same as a key
+   that works, and the difference is the whole point of the screen.
+   ─────────────────────────────────────────────────────────────── */
+const HEALTH_TIMEOUT = 12000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const bell = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not answer within ${Math.round(ms / 1000)}s.`)), ms);
+  });
+  return Promise.race([promise, bell]).finally(() => clearTimeout(timer));
+}
+
+async function healthReport() {
+  const cfg = loadConfig();
+  const tokens = readJson(TOKEN_FILE, {});
+  const saved = readJson(SCANS_FILE, {});
+  const items = [];
+
+  // state: 'ok' works right now · 'off' not set up · 'broken' set up but failing
+  const add = (key, label, state, detail, fix) => items.push({ key, label, state, detail, fix: fix || '' });
+
+  const probe = async (key, label, needs, fn, offDetail, offFix) => {
+    if (!needs) return add(key, label, 'off', offDetail, offFix);
+    try {
+      add(key, label, 'ok', await withTimeout(fn(), HEALTH_TIMEOUT, label));
+    } catch (err) {
+      add(key, label, 'broken', err.message || String(err),
+        'Open Connections and check this one.');
+    }
+  };
+
+  // ── Google sign-in ──
+  if (!cfg.clientId || !cfg.clientSecret) {
+    add('oauth', 'Google sign-in', 'off',
+      'No OAuth client ID and secret saved.',
+      'Connections → Google Cloud project. Without this nothing Google can connect.');
+  } else if (!tokens.refresh_token) {
+    add('oauth', 'Google sign-in', 'off',
+      'Credentials are saved but nobody has signed in yet.',
+      'Connections → Connect with Google.');
+  } else {
+    try {
+      await withTimeout(accessToken(), HEALTH_TIMEOUT, 'Google');
+      add('oauth', 'Google sign-in', 'ok',
+        'Signed in as ' + (tokens.email || 'a Google account') + '; the token refreshes on its own.');
+    } catch (err) {
+      add('oauth', 'Google sign-in', 'broken', err.message || String(err),
+        'Connections → Sign out, then Connect with Google again.');
+    }
+  }
+  const signedIn = tokens.refresh_token && items[0].state === 'ok';
+
+  await Promise.all([
+    probe('gsc', 'Search Console', signedIn && cfg.gscSite, async () => {
+      const r = await gscReport(7, 'query');
+      return r.totals.impressions
+        ? `${fmtNum(r.totals.clicks)} clicks and ${fmtNum(r.totals.impressions)} impressions in the last 7 days.`
+        : 'Connected, but Google reported no impressions in the last 7 days.';
+    }, signedIn ? 'No property set.' : 'Needs the Google sign-in first.',
+       'Connections → Google Search Console, then pick the property.'),
+
+    probe('rankings', 'Keyword rankings', signedIn && cfg.gscSite, async () => {
+      const r = await gscRankings(28);
+      const t = r.tracked;
+      return `${fmtNum(r.keywords)} queries with impressions` +
+        (t ? `, and ${fmtNum(t.seen)} of your ${fmtNum(t.total)} tracked keywords ranking.` : '.');
+    }, 'Needs Search Console.', 'Connect Search Console and this fills in.'),
+
+    probe('ga4', 'Analytics 4', signedIn && cfg.ga4Property, async () => {
+      const r = await ga4Report(7, 'channel');
+      return `${fmtNum(r.totals.sessions)} sessions in the last 7 days.`;
+    }, signedIn ? 'No GA4 property id set.' : 'Needs the Google sign-in first.',
+       'Connections → Google Analytics 4, then pick the property.'),
+
+    probe('psi', 'PageSpeed', Boolean(cfg.psiKey), async () => {
+      const target = (cfg.gscSite || 'https://www.twinhomebuyer.com/').replace(/^sc-domain:/, 'https://');
+      const r = await pageSpeed(target, 'mobile');
+      return `Live. Performance scored ${Math.round((r.scores && r.scores.performance) || 0)} on mobile.`;
+    }, 'No API key saved — Google rate-limits anonymous calls hard.',
+       'Connections → PageSpeed API key.'),
+
+    probe('semrush', 'Semrush API', Boolean(cfg.semrushKey), async () => {
+      const r = await semrushBacklinks();
+      return `Live. ${fmtNum(r.backlinks)} backlinks from ${fmtNum(r.referringDomains)} domains.`;
+    }, 'No Semrush API key saved.', 'Connections → Semrush API key.')
+  ]);
+
+  // ── Things that need no probing, only reporting ──
+  add('audit', 'Site Audit', saved.siteAudit ? 'ok' : 'off',
+    saved.siteAudit
+      ? `Last run ${new Date(saved.siteAudit.ranAt).toLocaleString()} — ${fmtNum(saved.siteAudit.crawled)} pages, health ${saved.siteAudit.health}.`
+      : 'No crawl recorded yet.',
+    saved.siteAudit ? '' : 'Site Audit → Run audit.');
+
+  add('ai', 'AI Search', saved.aiSearch ? 'ok' : 'off',
+    saved.aiSearch
+      ? `Last run ${new Date(saved.aiSearch.ranAt).toLocaleString()} — ${fmtNum(saved.aiSearch.pages)} pages, score ${saved.aiSearch.score}.`
+      : 'No scan recorded yet.',
+    saved.aiSearch ? '' : 'AI Search → Run scan.');
+
+  const kw = loadKeywords();
+  const kwCount = expandKeywords(kw).length;
+  add('keywords', 'Tracked keywords', kwCount ? 'ok' : 'off',
+    kwCount ? `${fmtNum(kwCount)} keywords on the list across ${fmtNum((kw.cities || []).length)} cities.`
+            : 'The keyword list is empty.',
+    kwCount ? '' : 'Rankings → Target keywords → edit the list.');
+
+  if (!signedIn) {
+    add('drive', 'Publishing to Drive', 'off', 'Needs the Google sign-in first.',
+      'Connections → Connect with Google.');
+  } else if (lastPublish.at && !lastPublish.ok) {
+    add('drive', 'Publishing to Drive', 'broken', lastPublish.error,
+      'Sign out and connect again — writing to Drive needs one extra permission.');
+  } else if (lastPublish.at) {
+    add('drive', 'Publishing to Drive', 'ok',
+      `Last published ${new Date(lastPublish.at).toLocaleString()} to ${DRIVE_FILE}.`);
+  } else {
+    add('drive', 'Publishing to Drive', 'off',
+      'Nothing published yet — it happens by itself when a scan finishes.',
+      'Run a scan, or Connections → Shared page → Publish latest scan now.');
+  }
+
+  const remoteOn = cfg.remoteScans !== false;
+  add('remote', 'Scan from the shared page', !remoteOn ? 'off' : remote.error ? 'broken' : remote.seenAt ? 'ok' : 'off',
+    !remoteOn ? 'Switched off — the Scan now button on the shared page is ignored.'
+      : remote.error ? remote.error
+      : remote.seenAt ? `Listening. Mailbox is ${remote.signalName || 'in place'}.`
+      : 'Not listening yet — needs the Google sign-in.',
+    remoteOn ? '' : 'Connections → Shared page → Turn on scan requests.');
+
+  const working = items.filter(i => i.state === 'ok').length;
+  const broken = items.filter(i => i.state === 'broken').length;
+  return {
+    checkedAt: new Date().toISOString(),
+    working, broken, off: items.length - working - broken, total: items.length,
+    items
+  };
+}
+
+function fmtNum(n) {
+  return typeof n === 'number' && isFinite(n) ? Math.round(n).toLocaleString('en-US') : '—';
+}
 
 async function dashboardData(days) {
   const cfg = loadConfig();
@@ -1917,6 +2069,10 @@ const server = http.createServer(async (req, res) => {
       const r = await publishToDrive();
       lastPublish = { at: Date.now(), ok: true, error: '', fileId: r.id, enabled: true };
       return send(res, 200, Object.assign({ ok: true }, r));
+    }
+
+    if (route === '/api/health') {
+      return send(res, 200, await healthReport());
     }
 
     if (route === '/api/compare') {
