@@ -2310,6 +2310,12 @@
         item.setAttribute('aria-current', 'true');
         var id = item.getAttribute('data-target');
         if (!id) return;
+        // These entries point at a widget, and every widget lives on the
+        // dashboard. Clicked from Search Console, Analytics, Connections or
+        // any other screen, this used to scroll a page that was hidden — the
+        // menu item looked dead. Put the dashboard back first. showView also
+        // scrolls to the top, so it has to run before we aim at the widget.
+        showView('dashboard');
         if (stash[id]) restore(id);
         var node = document.getElementById(id);
         if (!node) return;
