@@ -51,6 +51,11 @@ const KEYWORDS_FILE = path.join(DATA_DIR, 'keywords.json');
 // the same way the Search Console and Analytics bases already are.
 const OAUTH_TOKEN_URL = process.env.OAUTH_TOKEN_URL || 'https://oauth2.googleapis.com/token';
 const GSC_API = process.env.GSC_API_BASE || 'https://searchconsole.googleapis.com';
+// Business Profile is split across three services: accounts, the locations
+// under them, and the performance figures for a location.
+const GBP_ACCOUNTS_API = process.env.GBP_ACCOUNTS_API_BASE || 'https://mybusinessaccountmanagement.googleapis.com';
+const GBP_INFO_API = process.env.GBP_INFO_API_BASE || 'https://mybusinessbusinessinformation.googleapis.com';
+const GBP_PERF_API = process.env.GBP_PERF_API_BASE || 'https://businessprofileperformance.googleapis.com';
 const GA4_API = process.env.GA4_API_BASE || 'https://analyticsdata.googleapis.com';
 
 const PORT = Number(process.env.PORT || 8080);
@@ -63,6 +68,9 @@ const SCOPES = [
   // itself creates, never to anything already in the Drive. It is what lets a
   // finished scan reach the shared dashboard page.
   'https://www.googleapis.com/auth/drive.file',
+  // Google Business Profile: the listing, its locations and how people found
+  // it. Read-only use, but Google publishes no narrower scope than manage.
+  'https://www.googleapis.com/auth/business.manage',
   'openid',
   'email'   // so the dashboard can show which account is connected
 ].join(' ');
@@ -111,6 +119,8 @@ function loadConfig() {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
     ga4Measurement: stored.ga4Measurement || '',
+    // A location id like "locations/12345678901234567890", or bare digits.
+    gbpLocation: String(process.env.GBP_LOCATION || stored.gbpLocation || '').replace(/^locations\//, ''),
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, ''),
     // Whether the shared page may ask this machine to start a scan. On unless
     // it has been turned off — off, the Scan now button there does nothing.
@@ -751,6 +761,142 @@ async function gscRankings(days) {
   };
 }
 
+/* ── Google Business Profile ────────────────────────────────────
+   The listing, not the website: what people saw on Search and Maps
+   and what they did about it. For a local buyer this is often the
+   larger half of the phone calls, and none of it appears in Search
+   Console or Analytics.
+
+   Access is gated. Google requires a project to be approved for the
+   Business Profile APIs, and until that happens every call comes
+   back 403 — so that case is translated rather than passed on raw.
+   ─────────────────────────────────────────────────────────────── */
+const GBP_METRICS = [
+  { key: 'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH', group: 'impressions', label: 'Seen on Search' },
+  { key: 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH',  group: 'impressions', label: 'Seen on Search' },
+  { key: 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',   group: 'maps',        label: 'Seen on Maps' },
+  { key: 'BUSINESS_IMPRESSIONS_MOBILE_MAPS',    group: 'maps',        label: 'Seen on Maps' },
+  { key: 'CALL_CLICKS',                         group: 'calls',       label: 'Tapped to call' },
+  { key: 'WEBSITE_CLICKS',                      group: 'website',     label: 'Clicked the website' },
+  { key: 'BUSINESS_DIRECTION_REQUESTS',         group: 'directions',  label: 'Asked for directions' }
+];
+
+function gbpError(err) {
+  const msg = err.message || '';
+  if (err.status === 403 && /has not been used in project|is disabled|not been enabled/i.test(msg)) {
+    const e = new Error(
+      'Google has not enabled the Business Profile APIs for this project yet. They are not on by ' +
+      'default: request access at https://developers.google.com/my-business/content/prereqs, then ' +
+      'enable the Business Profile APIs in the same Google Cloud project as the OAuth client.');
+    e.status = 403;
+    return e;
+  }
+  if (err.status === 403) {
+    const e = new Error(
+      'Google refused the Business Profile call. The signed-in account has to be an owner or manager ' +
+      'of the listing. Original message: ' + msg);
+    e.status = 403;
+    return e;
+  }
+  return err;
+}
+
+// Every location this account can see, flattened across accounts.
+async function gbpLocations() {
+  let accounts;
+  try {
+    accounts = await google(`${GBP_ACCOUNTS_API}/v1/accounts?pageSize=20`);
+  } catch (err) { throw gbpError(err); }
+
+  const out = [];
+  for (const acct of (accounts.accounts || [])) {
+    const name = acct.name;
+    if (!name) continue;
+    try {
+      const mask = encodeURIComponent('name,title,storefrontAddress,websiteUri');
+      const data = await google(`${GBP_INFO_API}/v1/${name}/locations?readMask=${mask}&pageSize=100`);
+      (data.locations || []).forEach(loc => {
+        const addr = loc.storefrontAddress || {};
+        out.push({
+          id: String(loc.name || '').replace(/^locations\//, ''),
+          title: loc.title || '(untitled listing)',
+          account: acct.accountName || acct.name,
+          website: loc.websiteUri || '',
+          where: [addr.locality, addr.administrativeArea].filter(Boolean).join(', ')
+        });
+      });
+    } catch (err) { throw gbpError(err); }
+  }
+  return out;
+}
+
+const gbpDate = d => ({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+
+// The daily series for one location, folded into the handful of numbers a
+// person actually asks about.
+async function gbpReport(days) {
+  const cfg = loadConfig();
+  if (!cfg.gbpLocation) {
+    const err = new Error('No Business Profile location chosen.');
+    err.status = 400;
+    throw err;
+  }
+  // Business Profile lags a few days, same as Search Console.
+  const end = new Date(Date.now() - 3 * 86400000);
+  const start = new Date(end.getTime() - (days - 1) * 86400000);
+  const p = new URLSearchParams();
+  GBP_METRICS.forEach(m => p.append('dailyMetrics', m.key));
+  const s = gbpDate(start), e = gbpDate(end);
+  p.set('dailyRange.start_date.year', s.year); p.set('dailyRange.start_date.month', s.month); p.set('dailyRange.start_date.day', s.day);
+  p.set('dailyRange.end_date.year', e.year);   p.set('dailyRange.end_date.month', e.month);   p.set('dailyRange.end_date.day', e.day);
+
+  let data;
+  try {
+    data = await google(`${GBP_PERF_API}/v1/locations/${encodeURIComponent(cfg.gbpLocation)}:fetchMultiDailyMetricsTimeSeries?${p}`);
+  } catch (err) { throw gbpError(err); }
+
+  // Two of the seven metrics are desktop/mobile halves of the same question,
+  // so they are summed rather than shown as four confusing lines.
+  const totals = { impressions: 0, maps: 0, calls: 0, website: 0, directions: 0 };
+  const labels = [];
+  const series = { impressions: [], maps: [], calls: [], website: [], directions: [] };
+  const byDay = new Map();
+
+  ((data && data.multiDailyMetricTimeSeries) || []).forEach(entry => {
+    ((entry && entry.dailyMetricTimeSeries) || []).forEach(m => {
+      const spec = GBP_METRICS.find(x => x.key === m.dailyMetric);
+      if (!spec) return;
+      (((m.timeSeries || {}).datedValues) || []).forEach(dv => {
+        const d = dv.date || {};
+        const iso = `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
+        const v = Number(dv.value || 0) || 0;
+        if (!byDay.has(iso)) byDay.set(iso, { impressions: 0, maps: 0, calls: 0, website: 0, directions: 0 });
+        byDay.get(iso)[spec.group] += v;
+        totals[spec.group] += v;
+      });
+    });
+  });
+
+  [...byDay.keys()].sort().forEach(iso => {
+    labels.push(iso);
+    const row = byDay.get(iso);
+    Object.keys(series).forEach(k => series[k].push(row[k]));
+  });
+
+  return {
+    location: cfg.gbpLocation,
+    days,
+    from: labels[0] || '',
+    to: labels[labels.length - 1] || '',
+    totals,
+    labels,
+    series,
+    // What the listing turned into contact, which is the number that matters.
+    actions: totals.calls + totals.website + totals.directions,
+    seen: totals.impressions + totals.maps
+  };
+}
+
 async function ga4Report(days, dim) {
   const cfg = loadConfig();
   if (!cfg.ga4Property) {
@@ -989,6 +1135,12 @@ async function healthReport() {
         (t ? `, and ${fmtNum(t.seen)} of your ${fmtNum(t.total)} tracked keywords ranking.` : '.');
     }, 'Needs Search Console.', 'Connect Search Console and this fills in.'),
 
+    probe('gbp', 'Business Profile', Boolean(signedIn && cfg.gbpLocation), async () => {
+      const r = await gbpReport(28);
+      return `Live. Seen ${fmtNum(r.seen)} times, ${fmtNum(r.actions)} actions in 28 days.`;
+    }, signedIn ? 'No Business Profile location chosen.' : 'Needs the Google sign-in first.',
+       'Connections → Google Business Profile, then pick the listing.'),
+
     probe('ga4', 'Analytics 4', signedIn && cfg.ga4Property, async () => {
       const r = await ga4Report(7, 'channel');
       return `${fmtNum(r.totals.sessions)} sessions in the last 7 days.`;
@@ -1087,6 +1239,11 @@ async function dashboardData(days) {
     }),
 
     attempt('rankings', async () => gscRankings(days)),
+
+    attempt('business', async () => {
+      if (!cfg.gbpLocation) throw new Error('No Business Profile location chosen.');
+      return gbpReport(days);
+    }),
 
     attempt('analytics', async () => {
       if (!cfg.ga4Property) throw new Error('No GA4 property set.');
@@ -1560,6 +1717,7 @@ const server = http.createServer(async (req, res) => {
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement,
+        gbpLocation: cfg.gbpLocation,
         redirectUri: redirectUri(req)
       });
     }
@@ -1567,7 +1725,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       const patch = {};
-      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement'].forEach(k => {
+      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement', 'gbpLocation'].forEach(k => {
         if (typeof body[k] === 'string') patch[k] = body[k].trim();
       });
       if (patch.ga4Property) patch.ga4Property = patch.ga4Property.replace(/^properties\//, '');
@@ -1815,6 +1973,15 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (route === '/api/gbp/locations') {
+      return send(res, 200, { locations: await gbpLocations() });
+    }
+
+    if (route === '/api/gbp') {
+      const days = Math.min(400, Math.max(1, Number(url.searchParams.get('days')) || 28));
+      return send(res, 200, await gbpReport(days));
+    }
+
     if (route === '/api/ga4/properties') {
       const data = await google('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200');
       const properties = [];
@@ -1886,6 +2053,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  Google account        ${tokens.refresh_token ? (tokens.email || 'connected') : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
   console.log(`  GA4 property          ${cfg.ga4Property || '—'}`);
+  console.log(`  Business Profile      ${cfg.gbpLocation || '—'}`);
   console.log(`  Shared-page requests  ${cfg.remoteScans !== false ? 'accepted' : 'off'}\n`);
   startRemoteLoop();
   if (process.argv.includes('--open') || IS_PACKAGED) {

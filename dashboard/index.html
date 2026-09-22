@@ -840,6 +840,7 @@
         <span class="eyebrow">Google Data</span>
         <button class="nav-item" data-view="gsc"><span class="dot"></span>Google Search Console</button>
         <button class="nav-item" data-view="ga4"><span class="dot"></span>Google Analytics 4</button>
+        <button class="nav-item" data-target="w-gbp"><span class="dot"></span>Business Profile</button>
         <button class="nav-item" data-view="connections"><span class="dot"></span>Connections &amp; API keys</button>
         <button class="nav-item" data-view="health"><span class="dot"></span>What is working</button>
       </div>
@@ -1115,6 +1116,26 @@
             <div class="w-foot" style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn">View full report</button>
               <button class="btn" data-report="compare">Before &amp; after</button>
+            </div>
+          </section>
+
+          <section class="w" id="w-gbp" data-name="Google Business Profile">
+            <div class="w-head">
+              <h3>Business Profile</h3>
+              <span class="info" title="Your listing on Google Search and Maps — how often it was seen and what people did next.">i</span>
+              <div class="w-tools">
+                <button class="w-close" data-hide="w-gbp" aria-label="Hide Business Profile">&#10005;</button>
+              </div>
+            </div>
+            <div class="w-body">
+              <p class="field-hint" style="margin:0">
+                Connect your Google Business Profile and this fills in: how many people saw the
+                listing on Search and Maps, and how many called, clicked through or asked for
+                directions.
+              </p>
+            </div>
+            <div class="w-foot" style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn" data-view="connections">Connect Business Profile</button>
             </div>
           </section>
 
@@ -1621,6 +1642,38 @@
               <div class="actions" style="margin-top:14px">
                 <button class="btn" id="btnTestGa4">Test connection</button>
                 <span class="field-hint" id="ga4TestOut"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="w">
+            <div class="w-head">
+              <h3>Google Business Profile</h3>
+              <span class="info" title="Your listing on Search and Maps: how many people saw it and how many called, clicked through or asked for directions.">i</span>
+              <div class="w-tools"><span class="status-pill" id="gbpPill"><i></i>Not configured</span></div>
+            </div>
+            <div class="w-body">
+              <p class="field-hint" style="margin:0 0 12px;max-width:72ch">
+                This is the listing, not the website. For a local buyer it is often the larger share of
+                the phone calls, and none of it shows up in Search Console or Analytics.
+                <strong>Google gates these APIs</strong> — a project has to be approved before the first
+                call works. Test connection will say so plainly if yours is not.
+              </p>
+              <div class="form-grid form-2">
+                <div class="field">
+                  <label for="fGbpLoc">Location ID</label>
+                  <input class="input" id="fGbpLoc" type="text" spellcheck="false" placeholder="99887766">
+                  <span class="field-hint">Digits only, or the full <code>locations/…</code> form — either is accepted.</span>
+                </div>
+                <div class="field">
+                  <label for="fGbpPick">Listings this account can manage</label>
+                  <select class="input" id="fGbpPick"><option value="">Press Test connection to list them</option></select>
+                  <span class="field-hint">Straight from the Business Profile API. A listing missing here means the signed-in account does not manage it.</span>
+                </div>
+              </div>
+              <div class="actions" style="margin-top:14px">
+                <button class="btn" id="btnTestGbp">Test connection</button>
+                <span class="field-hint" id="gbpTestOut"></span>
               </div>
             </div>
           </section>
@@ -2207,7 +2260,7 @@
   var CFG_KEY = 'twinseo.google.v1';
   var cfg = (function load() {
     var d = { clientId: '', gscSite: '', ga4Property: '', ga4Measurement: '',
-              serviceAccount: '', token: '', tokenExp: 0, tokenSource: '' };
+              serviceAccount: '', token: '', tokenExp: 0, tokenSource: '', gbpLocation: '' };
     try {
       var raw = window.localStorage && localStorage.getItem(CFG_KEY);
       if (raw) { var p = JSON.parse(raw); for (var k in d) if (p[k] != null) d[k] = p[k]; }
@@ -2946,6 +2999,7 @@
     $('fClientId').value = cfg.clientId;
     $('fGscSite').value = cfg.gscSite;
     $('fGa4Prop').value = cfg.ga4Property;
+    $('fGbpLoc').value = cfg.gbpLocation || '';
     $('fGa4Meas').value = cfg.ga4Measurement;
     $('fSa').value = cfg.serviceAccount;
     $('fToken').value = cfg.token;
@@ -2961,6 +3015,7 @@
     refreshTokenPill();
     gscRefreshChrome();
     ga4RefreshChrome();
+    refreshGbpPill();
     renderCfgJson();
     renderEnvBanner();
     var problem = cfg.clientId ? clientIdProblem(cfg.clientId) : '';
@@ -3054,6 +3109,32 @@
     }
   }
 
+  function fillGbpPicker(locations) {
+    var pick = $('fGbpPick');
+    if (!pick) return;
+    pick.innerHTML = '';
+    var head = document.createElement('option');
+    head.value = '';
+    head.textContent = locations.length
+      ? 'Pick a listing… (' + locations.length + ' available)'
+      : 'No listings this account can manage';
+    pick.appendChild(head);
+    locations.forEach(function (l) {
+      var o = document.createElement('option');
+      o.value = l.id;
+      o.textContent = (l.title || 'Listing') + (l.where ? ' — ' + l.where : '') + '  ·  ' + l.id;
+      if (l.id === cfg.gbpLocation) o.selected = true;
+      pick.appendChild(o);
+    });
+  }
+
+  function refreshGbpPill() {
+    var pill = $('gbpPill');
+    if (!pill) return;
+    if (!cfg.gbpLocation) { setPill(pill, 'off', 'Not configured'); return; }
+    setPill(pill, tokenLive() ? 'ok' : 'warn', tokenLive() ? 'Ready' : 'Listing set · no token');
+  }
+
   function fillGa4Picker(properties) {
     var pick = $('fGa4Pick');
     if (!pick) return;
@@ -3094,7 +3175,8 @@
         clientId: cfg.clientId,
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
-        ga4Measurement: cfg.ga4Measurement
+        ga4Measurement: cfg.ga4Measurement,
+        gbpLocation: cfg.gbpLocation
       };
       // Secrets are only sent when actually typed, so a blank field never
       // wipes a key that is already stored on the server.
@@ -3114,6 +3196,7 @@
     cfg.gscSite = $('fGscSite').value.trim();
     cfg.ga4Property = $('fGa4Prop').value.trim().replace(/^properties\//, '');
     cfg.ga4Measurement = $('fGa4Meas').value.trim();
+    cfg.gbpLocation = $('fGbpLoc').value.trim().replace(/^locations\//, '');
     cfg.serviceAccount = $('fSa').value.trim();
     var t = $('fToken').value.trim();
     if (t !== cfg.token) {
@@ -3309,6 +3392,50 @@
         gscRefreshChrome();
       });
       }).catch(function (e) { say('gscTestOut', e.message, 'err'); });
+    });
+
+    $('fGbpPick').addEventListener('change', function () {
+      if (!this.value) return;
+      $('fGbpLoc').value = this.value;
+      persistSettings().then(function () {
+        refreshGbpPill();
+        renderCfgJson();
+        say('gbpTestOut', 'Listing set. Press Test connection again.', 'ok');
+        refreshLiveDashboard(true);
+      });
+    });
+
+    $('btnTestGbp').addEventListener('click', function () {
+      if (!SERVER) { say('gbpTestOut', 'Run the Twin SEO app to test this.', 'err'); return; }
+      readForm();
+      var btn = $('btnTestGbp');
+      btn.disabled = true;
+      say('gbpTestOut', 'Asking Google…');
+      persistSettings().then(function () {
+        return srv('/api/gbp/locations', null, 45000);
+      }).then(function (r) {
+        var list = (r && r.locations) || [];
+        fillGbpPicker(list);
+        if (!list.length) {
+          say('gbpTestOut', 'Connected, but this account manages no listings.', 'err');
+          return null;
+        }
+        if (!cfg.gbpLocation) {
+          say('gbpTestOut', 'Found ' + list.length + ' listing' + (list.length > 1 ? 's' : '') +
+            '. Pick one from the list.', 'ok');
+          return null;
+        }
+        return srv('/api/gbp?days=28', null, 45000).then(function (g) {
+          say('gbpTestOut', 'Live — seen ' + fmtInt(g.seen) + ' times and ' + fmtInt(g.actions) +
+            ' actions in the last 28 days.', 'ok');
+          refreshLiveDashboard(true);
+        });
+      }).catch(function (e) {
+        say('gbpTestOut', e.message, 'err');
+      }).then(function () {
+        btn.disabled = false;
+        refreshGbpPill();
+      });
     });
 
     $('fGa4Pick').addEventListener('change', function () {
@@ -4573,6 +4700,52 @@
         setMetric('w-seo', 'Average Position', k.avgPosition.toFixed(1),
           'weighted by impressions · Search Console');
       }
+    }
+
+    // The listing on Search and Maps. Seen and acted-on are kept apart: an
+    // impression is not a result, and adding them would flatter the number.
+    var gb = d.business;
+    var gbW = $('w-gbp');
+    if (gb && gb.totals && gbW) {
+      var gbh = gbW.querySelector('.w-body');
+      if (gbh) {
+        gbh.innerHTML =
+          '<div class="metrics metrics-2">' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Seen on Search &amp; Maps</span></div>' +
+              '<div class="metric-val num" data-g="seen"></div>' +
+              '<div class="metric-note" data-g="split"></div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">People who acted</span></div>' +
+              '<div class="metric-val num" data-g="actions"></div>' +
+              '<div class="metric-note">called, clicked or got directions</div></div>' +
+          '</div>' +
+          '<div class="divider" style="margin:14px 0 10px"></div>' +
+          '<div class="metrics metrics-3">' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Calls</span></div>' +
+              '<div class="metric-val num" data-g="calls"></div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Website clicks</span></div>' +
+              '<div class="metric-val num" data-g="website"></div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Directions</span></div>' +
+              '<div class="metric-val num" data-g="directions"></div></div>' +
+          '</div>';
+        var put = function (k, v) {
+          var el = gbh.querySelector('[data-g="' + k + '"]');
+          if (el) el.textContent = v;
+        };
+        put('seen', fmtInt(gb.seen));
+        put('split', fmtInt(gb.totals.impressions) + ' on Search · ' + fmtInt(gb.totals.maps) + ' on Maps');
+        put('actions', fmtInt(gb.actions));
+        put('calls', fmtInt(gb.totals.calls));
+        put('website', fmtInt(gb.totals.website));
+        put('directions', fmtInt(gb.totals.directions));
+      }
+      // Once it is connected, "Connect Business Profile" is just a wrong label
+      // sitting under live figures.
+      var gfoot = gbW.querySelector('.w-foot');
+      if (gfoot) gfoot.hidden = true;
+      markLive('w-gbp', d.fetchedAt);
+      var gtag = gbW.querySelector('.live-tag');
+      if (gtag) { gtag.textContent = 'BUSINESS'; gtag.style.background = 'var(--accent)'; }
+      touched.push('Business Profile');
     }
 
     // How this site links to itself, straight from our own crawl. Not
