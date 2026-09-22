@@ -4569,9 +4569,9 @@
 
       setMetric('w-seo', 'Organic Keywords', fmtInt(k.keywords),
         k.distribution.top3 + ' in the top 3 · Search Console');
-      if (k.totals && typeof k.totals.position === 'number') {
-        setMetric('w-seo', 'Average Position', k.totals.position.toFixed(1),
-          'across every ranking query · Search Console');
+      if (typeof k.avgPosition === 'number') {
+        setMetric('w-seo', 'Average Position', k.avgPosition.toFixed(1),
+          'weighted by impressions · Search Console');
       }
     }
 

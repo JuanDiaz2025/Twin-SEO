@@ -710,6 +710,7 @@ async function gscRankings(days) {
   // what it measures rather than dressed up as the same number.
   const totalImp = rows.reduce((n, r) => n + r.impressions, 0);
   const page1Imp = rows.filter(r => r.position <= 10).reduce((n, r) => n + r.impressions, 0);
+  const posWeighted = rows.reduce((n, r) => n + r.position * r.impressions, 0);
 
   // Built from the same two fetches rather than its own — a second pair of
   // Search Console calls for the same window would only be the same data.
@@ -733,6 +734,7 @@ async function gscRankings(days) {
     lost,
     movers: movers.slice(0, 25),
     page1Share: totalImp ? (page1Imp / totalImp) * 100 : 0,
+    avgPosition: totalImp ? posWeighted / totalImp : null,
     // The keywords actually earning clicks, each carrying where it sat last
     // period. A ranking table without movement says where you are but not
     // which way you are going, which is the half that decides what to do.
