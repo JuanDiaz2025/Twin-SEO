@@ -103,24 +103,13 @@ function writeJson(file, value) {
 // not baked into the executable and not committed: the repository is public and
 // this file may hold an API key. Packaged, it is read from the folder holding
 // the exe; from a checkout, from app/.
-const DEFAULTS_FILE = IS_PACKAGED
-  ? path.join(BASE, 'defaults.json')
-  : path.join(__dirname, 'defaults.json');
-let bundledDefaults = null;
-function loadDefaults() {
-  if (bundledDefaults === null) bundledDefaults = readJson(DEFAULTS_FILE, {});
-  return bundledDefaults;
-}
-
 function loadConfig() {
   const stored = readJson(CONFIG_FILE, {});
-  const defaults = loadDefaults();
   return {
     // Environment wins, so a deployment can inject secrets without a writable disk.
     clientId: process.env.GOOGLE_CLIENT_ID || stored.clientId || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || stored.clientSecret || '',
     gscSite: process.env.GSC_SITE || stored.gscSite || '',
-    psiKey: process.env.PAGESPEED_API_KEY || stored.psiKey || defaults.psiKey || '',
     ga4Measurement: stored.ga4Measurement || '',
     ga4Property: String(process.env.GA4_PROPERTY_ID || stored.ga4Property || '').replace(/^properties\//, ''),
     // Whether the shared page may ask this machine to start a scan. On unless
@@ -873,143 +862,6 @@ function startAudit(startUrl, maxPages, pace) {
   });
 }
 
-/* ── PageSpeed Insights ─────────────────────────────────────────
-   The same Lighthouse run that powers pagespeed.web.dev, plus the
-   field data Chrome collects from real visitors when there is
-   enough traffic to report it.
-   ─────────────────────────────────────────────────────────────── */
-
-const CWV = {
-  LARGEST_CONTENTFUL_PAINT_MS: { label: 'Largest Contentful Paint', good: 2500, poor: 4000, unit: 'ms' },
-  INTERACTION_TO_NEXT_PAINT:   { label: 'Interaction to Next Paint', good: 200,  poor: 500,  unit: 'ms' },
-  CUMULATIVE_LAYOUT_SHIFT_SCORE: { label: 'Cumulative Layout Shift', good: 0.1, poor: 0.25, unit: 'score' },
-  FIRST_CONTENTFUL_PAINT_MS:   { label: 'First Contentful Paint', good: 1800, poor: 3000, unit: 'ms' },
-  EXPERIMENTAL_TIME_TO_FIRST_BYTE: { label: 'Time to First Byte', good: 800, poor: 1800, unit: 'ms' }
-};
-
-function rate(metric, value) {
-  const spec = CWV[metric];
-  if (!spec) return 'unknown';
-  return value <= spec.good ? 'good' : value <= spec.poor ? 'needs-improvement' : 'poor';
-}
-
-async function pageSpeed(url, strategy) {
-  const cfg = loadConfig();
-  const api = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
-  api.searchParams.set('url', url);
-  api.searchParams.set('strategy', strategy === 'desktop' ? 'desktop' : 'mobile');
-  ['performance', 'accessibility', 'best-practices', 'seo'].forEach(c => api.searchParams.append('category', c));
-  // A key is optional; without one Google rate-limits by IP.
-  if (cfg.psiKey) api.searchParams.set('key', cfg.psiKey);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 100000);
-  let res;
-  try {
-    res = await fetch(api.toString(), { headers: { Accept: 'application/json' }, signal: controller.signal });
-  } catch (err) {
-    const failure = new Error(err.name === 'AbortError'
-      ? 'PageSpeed did not answer in time. Google is sometimes slow on the first run for a URL — try again.'
-      : 'Could not reach the PageSpeed service: ' + (err.message || 'network error'));
-    failure.status = 504;
-    throw failure;
-  } finally {
-    clearTimeout(timer);
-  }
-  const text = await res.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch (e) { /* fall through to the raw text */ }
-  if (!res.ok) {
-    const message = (data && data.error && data.error.message) || text.slice(0, 300) || `HTTP ${res.status}`;
-    // "blocked" means the key exists but the API is not enabled for its project,
-    // or the key's API restrictions exclude PageSpeed — both fixable in a minute.
-    if (/are blocked|has not been used in project|is disabled/i.test(message)) {
-      const blocked = new Error(
-        'Your PageSpeed key was accepted, but Google is blocking the call: ' + message +
-        ' Two things to check, both on the key\'s Google Cloud project. First, enable the API at ' +
-        'https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com — this is the usual cause. ' +
-        'Second, open the key under APIs & Services → Credentials: if "API restrictions" is set to "Restrict key", ' +
-        'PageSpeed Insights API must be in the allowed list.');
-      blocked.status = res.status;
-      throw blocked;
-    }
-    const err = new Error(res.status === 429
-      ? 'Google is rate-limiting PageSpeed requests from this network. A free API key removes the limit — ' +
-        'create one at https://console.cloud.google.com/apis/credentials (Create credentials → API key), enable the ' +
-        'PageSpeed Insights API for the project, then paste the key into Connections & API keys. ' +
-        'Without a key, waiting a minute between checks usually works.'
-      : message);
-    err.status = res.status;
-    throw err;
-  }
-
-  return shapePsi(data, strategy, url);
-}
-
-function shapePsi(data, strategy, url) {
-  const lh = data.lighthouseResult || {};
-  const cats = lh.categories || {};
-  const audits = lh.audits || {};
-  const score = key => (cats[key] && cats[key].score != null ? Math.round(cats[key].score * 100) : null);
-  const lab = key => (audits[key] && audits[key].numericValue != null
-    ? { value: audits[key].numericValue, display: audits[key].displayValue || '' } : null);
-
-  // Field data — what real visitors experienced, where Chrome has enough of it.
-  const field = [];
-  const loading = data.loadingExperience && data.loadingExperience.metrics;
-  if (loading) {
-    Object.keys(loading).forEach(key => {
-      if (!CWV[key]) return;
-      const m = loading[key];
-      field.push({
-        key,
-        label: CWV[key].label,
-        unit: CWV[key].unit,
-        value: m.percentile,
-        rating: (m.category || rate(key, m.percentile)).toLowerCase().replace('_', '-')
-      });
-    });
-  }
-
-  // The changes with the largest measured saving, in the order worth doing.
-  const opportunities = Object.keys(audits)
-    .map(k => audits[k])
-    .filter(a => a && a.details && a.details.type === 'opportunity' &&
-                 a.details.overallSavingsMs > 100 && a.score !== 1)
-    .sort((a, b) => b.details.overallSavingsMs - a.details.overallSavingsMs)
-    .slice(0, 8)
-    .map(a => ({
-      title: a.title,
-      description: (a.description || '').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)'),
-      savingsMs: Math.round(a.details.overallSavingsMs)
-    }));
-
-  return {
-    url: (lh.finalUrl || url),
-    strategy: strategy === 'desktop' ? 'desktop' : 'mobile',
-    fetchedAt: lh.fetchTime || '',
-    scores: {
-      performance: score('performance'),
-      accessibility: score('accessibility'),
-      bestPractices: score('best-practices'),
-      seo: score('seo')
-    },
-    lab: {
-      lcp: lab('largest-contentful-paint'),
-      cls: lab('cumulative-layout-shift'),
-      tbt: lab('total-blocking-time'),
-      fcp: lab('first-contentful-paint'),
-      si: lab('speed-index'),
-      ttfb: lab('server-response-time')
-    },
-    field,
-    hasFieldData: field.length > 0,
-    opportunities
-  };
-}
-
-module.exports = { shapePsi };
-
 /* ── AI Search readiness ────────────────────────────────────── */
 
 let aiScan = { state: 'idle', crawled: 0, total: 0, result: null, error: '', url: '', startedAt: 0, stop: false };
@@ -1140,13 +992,6 @@ async function healthReport() {
       return `${fmtNum(r.totals.sessions)} sessions in the last 7 days.`;
     }, signedIn ? 'No GA4 property id set.' : 'Needs the Google sign-in first.',
        'Connections → Google Analytics 4, then pick the property.'),
-
-    probe('psi', 'PageSpeed', Boolean(cfg.psiKey), async () => {
-      const target = (cfg.gscSite || 'https://www.twinhomebuyer.com/').replace(/^sc-domain:/, 'https://');
-      const r = await pageSpeed(target, 'mobile');
-      return `Live. Performance scored ${Math.round((r.scores && r.scores.performance) || 0)} on mobile.`;
-    }, 'No API key saved — Google rate-limits anonymous calls hard.',
-       'Connections → PageSpeed API key.'),
 
   ]);
 
@@ -1713,8 +1558,6 @@ const server = http.createServer(async (req, res) => {
         gscSite: cfg.gscSite,
         ga4Property: cfg.ga4Property,
         ga4Measurement: cfg.ga4Measurement,
-        hasPsiKey: Boolean(cfg.psiKey),
-        psiKeyIsBundled: Boolean(!process.env.PAGESPEED_API_KEY && !readJson(CONFIG_FILE, {}).psiKey && loadDefaults().psiKey),
         redirectUri: redirectUri(req)
       });
     }
@@ -1722,7 +1565,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
       const patch = {};
-      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement', 'psiKey'].forEach(k => {
+      ['clientId', 'clientSecret', 'gscSite', 'ga4Property', 'ga4Measurement'].forEach(k => {
         if (typeof body[k] === 'string') patch[k] = body[k].trim();
       });
       if (patch.ga4Property) patch.ga4Property = patch.ga4Property.replace(/^properties\//, '');
@@ -1787,25 +1630,6 @@ const server = http.createServer(async (req, res) => {
       const pace = ['gentle', 'normal', 'brisk'].indexOf(body.pace) > -1 ? body.pace : 'normal';
       startAudit(target.toString(), maxPages, pace);
       return send(res, 200, { started: true, url: target.toString(), maxPages, pace });
-    }
-
-    if (route === '/api/pagespeed') {
-      const target = url.searchParams.get('url') || loadConfig().gscSite;
-      if (!target) return send(res, 400, { error: 'No URL to test.' });
-      // Only http(s) goes out. Without this anything the caller types —
-      // javascript:, file:, data: — is forwarded verbatim to Google, which
-      // spends the quota to tell us it was never a web page.
-      let psiTarget;
-      try {
-        psiTarget = new URL(/^https?:\/\//i.test(target) ? target : 'https://' + target.replace(/^sc-domain:/, ''));
-      } catch (e) {
-        return send(res, 400, { error: `"${target}" is not a URL I can test.` });
-      }
-      if (!/^https?:$/.test(psiTarget.protocol)) {
-        return send(res, 400, { error: 'PageSpeed can only test http:// and https:// pages.' });
-      }
-      const strategy = url.searchParams.get('strategy') || 'mobile';
-      return send(res, 200, await pageSpeed(psiTarget.toString(), strategy));
     }
 
     if (route === '/api/dashboard') {
@@ -2049,7 +1873,6 @@ function openBrowser(url) {
 
 if (require.main !== module) {
   // Imported for its helpers (tests), not run as the app.
-  module.exports.pageSpeed = pageSpeed;
   module.exports.runAuditRoutes = server;
 } else {
 server.listen(PORT, HOST, () => {
@@ -2061,7 +1884,6 @@ server.listen(PORT, HOST, () => {
   console.log(`  Google account        ${tokens.refresh_token ? (tokens.email || 'connected') : 'not connected'}`);
   console.log(`  Search Console        ${cfg.gscSite || '—'}`);
   console.log(`  GA4 property          ${cfg.ga4Property || '—'}`);
-  console.log(`  PageSpeed key         ${cfg.psiKey ? 'set' : 'not set (Google will rate-limit)'}`);
   console.log(`  Shared-page requests  ${cfg.remoteScans !== false ? 'accepted' : 'off'}\n`);
   startRemoteLoop();
   if (process.argv.includes('--open') || IS_PACKAGED) {

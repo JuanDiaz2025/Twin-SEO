@@ -765,29 +765,6 @@
     border-left: 2px solid var(--accent-line); padding-left: 9px; margin: 4px 0 6px;
   }
   .sev-first { background: var(--accent); color: #fff; }
-  .vitals { display: grid; gap: 6px; }
-  .vital {
-    display: grid; grid-template-columns: 12px minmax(0,1fr) auto auto;
-    gap: 10px; align-items: center;
-    font-size: 12.5px; padding: 6px 0; border-top: 1px solid var(--hairline-soft);
-  }
-  .vital:first-child { border-top: 0; }
-  .vital .dot { width: 9px; height: 9px; border-radius: 50%; }
-  .vital .val { font-variant-numeric: tabular-nums; font-weight: 650; }
-  .vital .verdict {
-    font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--ink-2); min-width: 8ch; text-align: right;
-  }
-  .r-good { background: var(--good); }
-  .r-needs-improvement { background: var(--warning); }
-  .r-poor { background: var(--critical); }
-  .r-unknown { background: var(--ink-3); }
-  .opp {
-    display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px;
-    padding: 8px 0; border-top: 1px solid var(--hairline-soft); font-size: 12.5px;
-  }
-  .opp .save { font-variant-numeric: tabular-nums; color: var(--good-text); font-weight: 650; white-space: nowrap; }
-  .opp p { margin: 3px 0 0; color: var(--ink-2); font-size: 12px; max-width: 74ch; }
 
   /* ── Toasts ──────────────────────────────────────────────── */
   .toast-host {
@@ -2230,7 +2207,7 @@
   var CFG_KEY = 'twinseo.google.v1';
   var cfg = (function load() {
     var d = { clientId: '', gscSite: '', ga4Property: '', ga4Measurement: '',
-              serviceAccount: '', token: '', tokenExp: 0, tokenSource: '', psiKey: '' };
+              serviceAccount: '', token: '', tokenExp: 0, tokenSource: '' };
     try {
       var raw = window.localStorage && localStorage.getItem(CFG_KEY);
       if (raw) { var p = JSON.parse(raw); for (var k in d) if (p[k] != null) d[k] = p[k]; }

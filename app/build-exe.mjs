@@ -122,11 +122,10 @@ const seaConfig = {
   assets: { dashboard: path.join('dashboard', 'index.html') }
 };
 // The tracked keyword list has to travel inside the binary, so the app knows
-// what to check on a machine with no data folder yet. app/defaults.json
-// deliberately does NOT: it may hold an
-// API key, and this executable is published to a public repository, so baking
-// it in would publish the key. Drop defaults.json next to the exe instead and
-// the app picks it up at runtime.
+// what to check on a machine with no data folder yet. Nothing else is baked
+// in: this executable is published to a public repository, so anything
+// secret would be published with it. Credentials are typed into the
+// Connections screen and stay in .data next to the exe.
 for (const [name, file] of [['keywords', 'app/keywords.json']]) {
   if (fs.existsSync(path.join(ROOT, file))) seaConfig.assets[name] = file;
   else step(`(no ${file} — skipping that asset)`);
