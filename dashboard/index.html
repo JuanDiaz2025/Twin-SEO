@@ -7,7 +7,7 @@
   :root {
     color-scheme: light;
 
-    --plane:        #eef1f1;   /* app background, teal-biased neutral */
+    --plane:        #ffffff;   /* app background — plain white */
     --rail:         #0c1618;
     --rail-ink:     #8fa3a6;
     --rail-ink-on:  #ffffff;
@@ -32,6 +32,24 @@
     --critical:     #d03b3b;
     --critical-text:#b02c2c;
 
+    /* Categorical hues, one per menu section. Validated on #ffffff for the
+       OKLCH lightness band, the chroma floor, protan/deutan/tritan separation
+       and the normal-vision floor across every pair — not just neighbours.
+       Green sits under 3:1 against white, which is legal here because each
+       dot is read next to its own written label, never on its own. */
+    --c1: #2a78d6;  /* Google Data */
+    --c2: #eb6834;  /* Site Performance */
+    --c3: #1baf7a;  /* Competitive Analysis */
+    --c4: #c94a9c;  /* Link Building */
+    --c5: #7c8c8f;  /* Other — deliberately neutral, it is the leftovers bin */
+
+    /* Rank bands, best to worst. ALL CHECKS PASS on #ffffff. */
+    --p1: #1baf7a;  /* top 3    */
+    --p2: #2a78d6;  /* 4–10     */
+    --p3: #eda100;  /* 11–20    */
+    --p4: #d9534f;  /* 21–50    */
+    --p5: #8e2f8e;  /* 51+      */
+
     --grid:         #e1e6e6;
     --baseline:     #c6d0d1;
 
@@ -47,42 +65,6 @@
 
     --rail-w: 56px;
     --nav-w: 232px;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --plane:        #0a0f10;
-      --rail:         #070b0c;
-      --rail-ink:     #7f9295;
-      --rail-ink-on:  #ffffff;
-      --surface:      #131a1c;
-      --surface-sub:  #182123;
-      --hairline:     #243033;
-      --hairline-soft:#1d2729;
-
-      --ink:          #e8efef;
-      --ink-2:        #9fb0b2;
-      --ink-3:        #7c8c8f;
-
-      --accent:       #259ca7;
-      --accent-deep:  #a2d7dd;
-      --accent-wash:  #12292c;
-      --accent-line:  #3fb3be;
-
-      --good-text:    #0ca30c;
-      --critical-text:#e46a6a;
-
-      --grid:         #202b2d;
-      --baseline:     #2c393c;
-
-      /* same hue, re-stepped for the dark surface */
-      --r1: #a2d7dd; --r2: #7ac4cd; --r3: #52b0bb; --r4: #259ca7;
-      --r5: #088690; --r6: #026f78; --r7: #025961;
-
-      --ring: rgba(255,255,255,.10);
-      --shadow: none;
-    }
   }
 
   :root[data-theme="dark"] {
@@ -255,6 +237,15 @@
     opacity: 0; flex: none;
   }
   .nav-item[data-target] .dot { opacity: .5; }
+  /* Each menu section carries its own hue so the sidebar reads as groups
+     rather than one wall of teal. */
+  .nav-group[data-hue="1"] .dot { background: var(--c1); }
+  .nav-group[data-hue="2"] .dot { background: var(--c2); }
+  .nav-group[data-hue="3"] .dot { background: var(--c3); }
+  .nav-group[data-hue="4"] .dot { background: var(--c4); }
+  .nav-group[data-hue="5"] .dot { background: var(--c5); }
+  .nav-group[data-hue] .nav-item .dot { opacity: 1; }
+  .nav-group[data-hue] > .eyebrow { color: var(--ink-2); }
   /* A pasted value can be far longer than the sidebar is wide. Wrapping and
      breaking keeps the message inside its column instead of spilling across
      the menu items underneath it. */
@@ -868,30 +859,30 @@
       <div class="nav-group">
         <button class="nav-item" aria-current="true" data-view="dashboard"><span class="dot"></span>Dashboard</button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group" data-hue="1">
         <span class="eyebrow">Google Data</span>
         <button class="nav-item" data-view="gsc"><span class="dot"></span>Google Search Console</button>
         <button class="nav-item" data-view="ga4"><span class="dot"></span>Google Analytics 4</button>
         <button class="nav-item" data-view="connections"><span class="dot"></span>Connections &amp; API keys</button>
         <button class="nav-item" data-view="health"><span class="dot"></span>What is working</button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group" data-hue="2">
         <span class="eyebrow">Site Performance</span>
         <button class="nav-item" data-view="audit"><span class="dot"></span>Site Audit</button>
         <button class="nav-item" data-target="w-position"><span class="dot"></span>Position Tracking</button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group" data-hue="3">
         <span class="eyebrow">Competitive Analysis</span>
         <button class="nav-item" data-target="w-seo"><span class="dot"></span>Domain Overview</button>
         <button class="nav-item" data-target="w-rankings"><span class="dot"></span>Organic Rankings</button>
         <button class="nav-item" data-report="compare"><span class="dot"></span>Before &amp; after</button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group" data-hue="4">
         <span class="eyebrow">Link Building</span>
         <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Backlinks</button>
         <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Referring Domains</button>
       </div>
-      <div class="nav-group">
+      <div class="nav-group" data-hue="5">
         <span class="eyebrow">Other</span>
         <button class="nav-item" data-target="w-oti"><span class="dot"></span>Organic Traffic Insights</button>
         <button class="nav-item" data-view="aisearch"><span class="dot"></span>AI Search</button>
@@ -926,7 +917,6 @@
         </div>
         <div class="title-actions">
           <button class="btn" id="btnShare">Share</button>
-          <button class="btn btn-primary" data-soon="Project creation arrives with the Semrush API wiring. The dashboard already tracks www.twinhomebuyer.com.">+ Create SEO project</button>
         </div>
       </div>
       <div class="snapshot-strip">
@@ -1844,7 +1834,7 @@
     for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
     return n;
   }
-  function ramp(i) { return css('--r' + (i + 1)); }
+  function ramp(i) { return css('--p' + Math.min(i + 1, 5)); }
 
   /* ── Tooltip helper ───────────────────────────────────────── */
   function makeTip(host) {
@@ -4538,7 +4528,7 @@
               '<span class="pct num"></span><span class="ct num"></span>';
             row.children[0].textContent = b.band;
             row.children[1].firstChild.style.width = Math.max(2, b.n / max * 100) + '%';
-            row.children[1].firstChild.style.background = css('--r' + (i + 1));
+            row.children[1].firstChild.style.background = css('--p' + Math.min(i + 1, 5));
             row.children[2].textContent = Math.round(b.n / o.keywords * 100) + '%';
             row.children[3].textContent = b.n;
             dist.appendChild(row);
@@ -4616,7 +4606,7 @@
               '<span class="pct num"></span><span class="ct num"></span>';
             row.children[0].textContent = b.label;
             row.children[1].firstChild.style.width = Math.max(2, b.count / rmax * 100) + '%';
-            row.children[1].firstChild.style.background = css('--r' + (i + 1));
+            row.children[1].firstChild.style.background = css('--p' + Math.min(i + 1, 5));
             row.children[2].textContent = Math.round(b.count / k.keywords * 100) + '%';
             row.children[3].textContent = b.count;
             rdist.appendChild(row);
