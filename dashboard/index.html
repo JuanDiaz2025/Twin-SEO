@@ -1686,41 +1686,6 @@
 
           <section class="w">
             <div class="w-head">
-              <h3>Semrush</h3>
-              <span class="info" title="The only source for backlinks — Search Console has no API for its Links report.">i</span>
-              <div class="w-tools"><span class="status-pill" id="semrushPill"><i></i>No key</span></div>
-            </div>
-            <div class="w-body">
-              <p class="field-hint" style="margin:0 0 12px;max-width:70ch">
-                Backlinks are the one thing Google will not hand over. Search Console shows a Links report in its
-                own interface but publishes no API for it, so the property connected above cannot supply them.
-                A Semrush API key fills in Authority Score, backlinks and referring domains.
-              </p>
-              <div class="form-grid">
-                <div class="field">
-                  <label for="fSemrushKey">Semrush API key</label>
-                  <input class="input" id="fSemrushKey" type="password" spellcheck="false" autocomplete="off"
-                         placeholder="user-abcdef0123456789abcdef0123456789">
-                  <span class="field-hint">Semrush → your profile → Subscription Info → API units. Only the server sees this;
-                  it is stored in <code>.data/config.json</code> on this machine and never sent to the browser.</span>
-                  <span class="field-hint" id="semrushKeyOut"></span>
-                </div>
-                <div class="field">
-                  <label>What it costs</label>
-                  <span class="field-hint">API units are a paid add-on to the Semrush subscription, separate from the seat.
-                  Each dashboard refresh spends units on three reports — overview, referring domains, and recent links —
-                  for the domain set in Search Console above.</span>
-                </div>
-              </div>
-              <div class="actions" style="margin-top:14px">
-                <button class="btn" id="btnTestSemrush">Test connection</button>
-                <span class="field-hint" id="semrushTestOut"></span>
-              </div>
-            </div>
-          </section>
-
-          <section class="w">
-            <div class="w-head">
               <h3>Service account <span style="font-weight:400;color:var(--ink-3)">— for the phase 2 backend</span></h3>
             </div>
             <div class="w-body">
@@ -3285,49 +3250,6 @@
     return msg;
   }
 
-  function refreshSemrushPill() {
-    var pill = $('semrushPill');
-    if (!pill) return;
-    if (!SERVER) {
-      setPill(pill, 'off', 'App only');
-      say('semrushKeyOut', 'The key is held by the app, never by this page.');
-      return;
-    }
-    if (serverStatus && serverStatus.hasSemrushKey) {
-      setPill(pill, 'ok', 'Key saved');
-      say('semrushKeyOut', 'A key is stored. Typing a new one replaces it; leaving the box empty keeps it.');
-    } else {
-      setPill(pill, 'off', 'No key');
-      say('semrushKeyOut', 'Without a key, Authority Score, backlinks and referring domains stay on the ' +
-        'Aug 11 export. Nothing else on the dashboard is affected.');
-    }
-  }
-
-  function wireSemrush() {
-    var btn = $('btnTestSemrush');
-    if (!btn) return;
-    var field = $('fSemrushKey');
-    // Save on blur, like the other credential fields, so a key typed and then
-    // tested is the key the server actually has.
-    if (field) field.addEventListener('blur', function () { if (field.value.trim()) persistSettings(); });
-
-    btn.addEventListener('click', function () {
-      if (!SERVER) { say('semrushTestOut', 'Run the Twin SEO app to test this.', 'err'); return; }
-      btn.disabled = true;
-      say('semrushTestOut', 'Asking Semrush…');
-      persistSettings().then(function () {
-        return srv('/api/semrush/test', null, 40000);
-      }).then(function (r) {
-        say('semrushTestOut', 'Connected — ' + r.target + ': Authority ' + r.authority + ', ' +
-          fmtInt(r.backlinks) + ' backlinks from ' + fmtInt(r.referringDomains) + ' domains.', 'ok');
-        refreshServerStatus().then(refreshSemrushPill);
-        refreshLiveDashboard(true);
-      }).catch(function (e) {
-        say('semrushTestOut', e.message, 'err');
-      }).then(function () { btn.disabled = false; });
-    });
-  }
-
   function refreshTokenPill() {
     if (SERVER) {
       if (serverStatus && serverStatus.connected) {
@@ -3405,9 +3327,6 @@
       var secretField = $('fClientSecret');
       var secret = secretField ? secretField.value.trim() : '';
       if (secret) payload.clientSecret = secret;
-      var semrushField = $('fSemrushKey');
-      var semrushKey = semrushField ? semrushField.value.trim() : '';
-      if (semrushKey) payload.semrushKey = semrushKey;
       return srv('/api/settings', payload).then(function () {
         return refreshServerStatus();
       });
@@ -5498,14 +5417,13 @@
         ], bl.recent, 'None returned.'));
         host.appendChild(rc);
       }
-      return src === 'api' ? 'Semrush API' : 'Semrush snapshot';
+      return 'Semrush export';
     }
     reportMissing(s.body, null,
-      'No link data is loaded. The Semrush API key on the Connections screen has no API units left, so the ' +
-      'live call cannot run, and no export has been read in its place.',
-      'Two ways to fill this: top up Semrush API units, or export Referring Domains from Semrush to Google ' +
-      'Drive — the shared console page already reads that export and breaks the profile down by authority ' +
-      'and by shared IP address.');
+      'No link data is loaded. Twin SEO no longer calls the Semrush API, and no export has been read ' +
+      'in its place.',
+      'To fill this, export Referring Domains from Semrush to Google Drive — the shared console page ' +
+      'already reads that export and breaks the profile down by authority and by shared IP address.');
     host.appendChild(s);
     return 'No data';
   }
@@ -5915,7 +5833,6 @@
 
   if (SERVER) {
     refreshServerStatus().then(function () {
-      refreshSemrushPill();
       fillForm();
       gscRefreshChrome();
       ga4RefreshChrome();
@@ -5927,7 +5844,6 @@
   }
 
   wireConnections();
-  wireSemrush();
   wireAudit();
   wireAiSearch();
   // The click handler receives an event object, which would arrive as `quiet`
