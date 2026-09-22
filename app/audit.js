@@ -1039,6 +1039,7 @@ function analyse({ pages, robots, origin, linkSources, inboundLinks = new Map(),
     counts,
     issues,
     linkReport: buildLinkReport({ pages, external, linkSources, origin }),
+    linkGraph: buildLinkGraph({ pages, inboundLinks, origin, sitemapUrls }),
     throttled: throttleHits > 0,
     throttleHits,
     crawled: pages.length,
@@ -1093,6 +1094,75 @@ function repairFor(status, error, kind, sourceCount, url) {
   if (status === 429) return 'Rate limited during the crawl, not necessarily broken. Re-run the audit at a gentler speed to confirm.';
   if (status >= 500) return `Your server errors on this URL. Check the error log for the time of this crawl — a linked page returning ${status} loses both visitors and indexing.`;
   return `Returns ${status}. Point ${links} at a URL that resolves, or fix the response for this one.`;
+}
+
+/* ── The shape of the site's own linking ────────────────────────
+   Not backlinks — nobody can see who links to you without a
+   web-wide index. This is what our own crawl genuinely knows:
+   how the pages connect to each other, which ones nothing points
+   at, and how much of the linking leaves the site.
+   ─────────────────────────────────────────────────────────────── */
+function buildLinkGraph({ pages, inboundLinks, origin, sitemapUrls }) {
+  const short = u => (u || '').replace(/^https?:\/\/[^/]+/, '') || '/';
+  // Only pages that actually answered: a 404 has no meaningful link count.
+  const live = pages.filter(p => !p.contentType && p.status >= 200 && p.status < 400);
+
+  let internal = 0;
+  let outbound = 0;
+  for (const p of live) {
+    internal += p.internalLinks || 0;
+    outbound += p.outboundLinks || 0;
+  }
+
+  const withInbound = live.map(p => ({
+    url: p.url,
+    path: short(p.url),
+    inbound: inboundLinks.get(p.url) || 0,
+    outbound: p.outboundLinks || 0,
+    internal: p.internalLinks || 0,
+    depth: typeof p.depth === 'number' ? p.depth : null
+  }));
+
+  // The home page is reached directly, not by an internal link, so counting it
+  // as an orphan would report a false problem on every site.
+  const home = origin.replace(/\/$/, '') + '/';
+  const isHome = u => u.replace(/\/$/, '/') === home;
+  const orphanList = withInbound.filter(p => p.inbound === 0 && !isHome(p.url));
+
+  // A genuine orphan is never reached by the crawl at all, because nothing
+  // links to it — that is what makes it an orphan. The only way to know it
+  // exists is the sitemap, so those URLs are folded in here too.
+  const crawled = new Set(pages.map(p => p.url));
+  for (const url of (sitemapUrls || [])) {
+    if (crawled.has(url) || isHome(url) || (inboundLinks.get(url) || 0) > 0) continue;
+    orphanList.push({
+      url,
+      path: short(url),
+      inbound: 0,
+      outbound: 0,
+      internal: 0,
+      depth: null,
+      notCrawled: true
+    });
+  }
+  const orphans = orphanList.sort((a, b) => a.path.localeCompare(b.path));
+
+  const mostLinked = withInbound.slice().sort((a, b) => b.inbound - a.inbound).slice(0, 10);
+  const thinnest = withInbound
+    .filter(p => p.inbound > 0)
+    .sort((a, b) => a.inbound - b.inbound)
+    .slice(0, 10);
+
+  return {
+    pages: live.length,
+    internalLinks: internal,
+    outboundLinks: outbound,
+    avgInternalPerPage: live.length ? Math.round(internal / live.length * 10) / 10 : 0,
+    orphanCount: orphans.length,
+    orphans: orphans.slice(0, 50),
+    mostLinked,
+    thinnest
+  };
 }
 
 function buildLinkReport({ pages, external, linkSources, origin }) {

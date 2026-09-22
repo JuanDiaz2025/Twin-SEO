@@ -47,6 +47,9 @@ const KEYWORDS_FILE = path.join(DATA_DIR, 'keywords.json');
 
 // Overridable so the ranking logic can be exercised against a stand-in
 // Search Console rather than the live property.
+// Overridable so the sign-in itself can be exercised end to end in a test,
+// the same way the Search Console and Analytics bases already are.
+const OAUTH_TOKEN_URL = process.env.OAUTH_TOKEN_URL || 'https://oauth2.googleapis.com/token';
 const GSC_API = process.env.GSC_API_BASE || 'https://searchconsole.googleapis.com';
 const GA4_API = process.env.GA4_API_BASE || 'https://analyticsdata.googleapis.com';
 
@@ -141,7 +144,7 @@ function redirectUri(req) {
 
 async function exchangeCode(code, redirect) {
   const cfg = loadConfig();
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetch(OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -182,7 +185,7 @@ async function accessToken() {
     throw err;
   }
   const cfg = loadConfig();
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetch(OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -290,15 +293,15 @@ async function gscReport(days, dim) {
 }
 
 /* ── Rankings, measured rather than estimated ───────────────────
-   Semrush estimates where a site ranks by sampling the SERP. Search
-   Console reports where it actually ranked, for every query that drew
-   an impression — so once GSC is connected the estimate is the weaker
-   number. This builds the position distribution and the real movement
-   between two consecutive windows.
+   A rank tracker estimates where a site ranks by sampling the SERP.
+   Search Console reports where it actually ranked, for every query that
+   drew an impression, on your own property — so this is a measurement,
+   not an estimate. It builds the position distribution and the real
+   movement between two consecutive windows.
 
    It is as live as the source allows, and no faster: Google publishes
    Search Console data on roughly a two-day delay, one row per day.
-   Nothing gives a true up-to-the-second rank, including Semrush.
+   Nothing gives a true up-to-the-second rank.
    ─────────────────────────────────────────────────────────────── */
 const BUCKETS = [
   { key: 'top3',   label: 'Top 3',  test: p => p <= 3 },
@@ -713,9 +716,9 @@ async function gscRankings(days) {
   const newQueries = rows.filter(r => !priorPos.has(r.query)).length;
   const lost = (before.rows || []).filter(r => !rows.some(x => x.query === r.keys[0])).length;
 
-  // Visibility: the share of impressions that landed on page one. Semrush's
-  // own visibility index is a different formula, so this is labelled for what
-  // it is rather than dressed up as the same number.
+  // Visibility: the share of impressions that landed on page one. Commercial
+  // visibility indexes use different formulas, so this is labelled for exactly
+  // what it measures rather than dressed up as the same number.
   const totalImp = rows.reduce((n, r) => n + r.impressions, 0);
   const page1Imp = rows.filter(r => r.position <= 10).reduce((n, r) => n + r.impressions, 0);
 
@@ -1055,9 +1058,6 @@ function startAiScan(startUrl, maxPages, pace) {
    being unavailable must not blank the rest.
    ─────────────────────────────────────────────────────────────── */
 
-// Real Semrush figures, exported from the Drive folder. Live sources override
-// these wherever one is connected; they are never invented.
-const SEMRUSH_FILE = path.join(__dirname, 'semrush-snapshot.json');
 
 /* ── What is working ────────────────────────────────────────────
    Every part of this app depends on something outside it — a
@@ -1209,15 +1209,6 @@ function fmtNum(n) {
 async function dashboardData(days) {
   const cfg = loadConfig();
   const out = { fetchedAt: new Date().toISOString(), sources: {}, notes: [] };
-
-  const semrush = readBundledJson('semrush', SEMRUSH_FILE, null);
-  if (semrush) {
-    out.semrush = semrush;
-    out.sources.semrush = 'export';
-  } else {
-    out.semrush = null;
-    out.sources.semrush = 'unavailable';
-  }
 
   const attempt = async (name, fn) => {
     try {
@@ -1611,6 +1602,7 @@ function summariseAudit(result, job) {
     broken: result.linkReport ? result.linkReport.totals.broken : 0,
     notFound: result.linkReport ? result.linkReport.totals.notFound : 0,
     serverError: result.linkReport ? result.linkReport.totals.serverError : 0,
+    links: result.linkGraph || null,
     ranAt: job.startedAt
   };
 }

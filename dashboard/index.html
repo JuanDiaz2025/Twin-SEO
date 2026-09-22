@@ -878,9 +878,8 @@
         <button class="nav-item" data-report="compare"><span class="dot"></span>Before &amp; after</button>
       </div>
       <div class="nav-group" data-hue="4">
-        <span class="eyebrow">Link Building</span>
-        <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Backlinks</button>
-        <button class="nav-item" data-target="w-backlinks"><span class="dot"></span>Referring Domains</button>
+        <span class="eyebrow">Links</span>
+        <button class="nav-item" data-target="w-links"><span class="dot"></span>Links on your site</button>
       </div>
       <div class="nav-group" data-hue="5">
         <span class="eyebrow">Other</span>
@@ -921,7 +920,7 @@
       </div>
       <div class="snapshot-strip">
         <span class="phase-tag" id="pageTag">Phase 1</span>
-        <span id="pageStrip">Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.</span>
+        <span id="pageStrip">Twin SEO measures your site itself: its own crawler, its own AI scan, and your own Google data.</span>
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <span class="field-hint" id="liveOut"></span>
           <button class="btn" id="btnLive">Refresh live data</button>
@@ -971,52 +970,33 @@
 
         <section class="w" id="w-seo">
           <div class="w-head">
-            <h3>SEO Overview</h3>
-            <span class="info" title="Semrush domain metrics for the root domain">i</span>
+            <h3>Search Overview</h3>
+            <span class="info" title="Measured by Google Search Console for your own property. Connect Google and these fill in.">i</span>
             <div class="w-tools">
-              <span class="chip">Root Domain</span>
-              <span class="chip">United States</span>
-              <span class="chip">Desktop</span>
-              <span class="chip">Aug 11, 2026</span>
-              <button class="w-close" data-hide="w-seo" aria-label="Hide SEO Overview">&#10005;</button>
+              <button class="w-close" data-hide="w-seo" aria-label="Hide Search Overview">&#10005;</button>
             </div>
           </div>
           <div class="w-body">
             <div class="metrics metrics-3">
               <div class="metric">
-                <div class="metric-label"><span class="eyebrow">Authority Score</span></div>
-                <div class="metric-val num">10 <small class="flat">0</small></div>
-                <div class="metric-note">Semrush Rank <span class="num">2.8M</span> <span class="up">&#9650;</span></div>
-              </div>
-              <div class="metric">
                 <div class="metric-label"><span class="eyebrow">Organic Traffic</span></div>
-                <div class="metric-val num">190 <small class="up">+9.83%</small></div>
-                <div class="metric-spark chart" data-spark="traffic"></div>
+                <div class="metric-val num">&mdash;</div>
+                <div class="metric-note">needs Search Console</div>
               </div>
               <div class="metric">
                 <div class="metric-label"><span class="eyebrow">Organic Keywords</span></div>
-                <div class="metric-val num">280 <small class="up">+3.32%</small></div>
-                <div class="metric-note">29 pages ranking</div>
+                <div class="metric-val num">&mdash;</div>
+                <div class="metric-note">needs Search Console</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label"><span class="eyebrow">Average Position</span></div>
+                <div class="metric-val num">&mdash;</div>
+                <div class="metric-note">needs Search Console</div>
               </div>
             </div>
-            <div class="divider" style="margin:14px 0"></div>
-            <div class="metrics metrics-3">
-              <div class="metric">
-                <div class="metric-label"><span class="eyebrow">Paid Keywords</span></div>
-                <div class="metric-val num">0 <small class="flat">0%</small></div>
-                <div class="metric-note">Paid traffic <span class="num">0</span></div>
-              </div>
-              <div class="metric">
-                <div class="metric-label"><span class="eyebrow">Referring Domains</span></div>
-                <div class="metric-val num">106</div>
-                <div class="metric-note">Semrush export, Aug 12 2026</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label"><span class="eyebrow">Backlinks</span></div>
-                <div class="metric-val num">184</div>
-                <div class="metric-note">Semrush export, Aug 12 2026</div>
-              </div>
-            </div>
+          </div>
+          <div class="w-foot" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" data-view="connections">Connect Search Console</button>
           </div>
         </section>
       </div>
@@ -1032,7 +1012,6 @@
             <div class="w-head">
               <h3>Traffic Analytics</h3>
               <div class="w-tools">
-                <span class="chip">Semrush data</span>
                 <span class="chip">Google data</span>
                 <span class="chip">Jul 13 – Aug 11, 2026</span>
                 <button class="w-close" data-hide="w-traffic" aria-label="Hide Traffic Analytics">&#10005;</button>
@@ -1105,7 +1084,7 @@
                 </div>
                 <div>
                   <h4 style="font-size:14px;margin-bottom:5px">Enrich this dashboard with first-party data</h4>
-                  <p style="margin:0 0 10px;color:var(--ink-2);font-size:12.5px;max-width:60ch">Google Analytics and Search Console fill in sessions, conversions, queries and click-through — the numbers Semrush estimates but cannot see.</p>
+                  <p style="margin:0 0 10px;color:var(--ink-2);font-size:12.5px;max-width:60ch">Google Analytics and Search Console fill in sessions, conversions, queries and click-through, measured on your own property rather than estimated.</p>
                   <button class="btn btn-primary" data-goto="connections">Connect</button>
                   <button class="btn" data-soon="Google data is read-only and stays in your browser. Twin SEO never writes to your Analytics or Search Console property.">Disclaimer</button>
                 </div>
@@ -1162,36 +1141,23 @@
             </div>
           </section>
 
-          <section class="w" id="w-backlinks">
+          <section class="w" id="w-links" data-name="Links on your site">
             <div class="w-head">
-              <h3>Backlinks</h3>
+              <h3>Links on your site</h3>
+              <span class="info" title="Measured by the Twin SEO crawler on your own pages. This is not backlinks — who links to you from elsewhere needs a web-wide index.">i</span>
               <div class="w-tools">
-                <span class="chip">Root Domain</span>
-                <button class="w-close" data-hide="w-backlinks" aria-label="Hide Backlinks">&#10005;</button>
+                <button class="w-close" data-hide="w-links" aria-label="Hide Links on your site">&#10005;</button>
               </div>
             </div>
             <div class="w-body">
-              <div class="metrics metrics-2">
-                <div class="metric">
-                  <div class="metric-label"><span class="eyebrow">Referring domains</span></div>
-                  <div class="metric-val num">106</div>
-                  <div class="metric-note">Semrush export, Aug 12 2026</div>
-                </div>
-                <div class="metric">
-                  <div class="metric-label"><span class="eyebrow">Backlinks</span></div>
-                  <div class="metric-val num">184</div>
-                  <div class="metric-note">Semrush export, Aug 12 2026</div>
-                </div>
-              </div>
-              <p class="note" data-tone="warn" style="margin:14px 0 0">
-                <span class="note-glyph">!</span>
-                <span><strong>Two totals is all we have.</strong> The export carries no per-domain
-                list, no authority scores and no month-by-month history, so there is nothing to
-                chart and nothing to break down. Export <em>Referring Domains</em> from Semrush to
-                Drive and this card fills in properly.</span>
+              <p class="field-hint" style="margin:0">
+                Run a Site Audit and this fills in: how your pages link to each other,
+                which ones nothing points at, and how many links leave the site.
               </p>
             </div>
-            <div class="w-foot"><button class="btn">View full report</button></div>
+            <div class="w-foot" style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn" data-view="audit">Run a Site Audit</button>
+            </div>
           </section>
         </div>
       </div>
@@ -1239,10 +1205,10 @@
       </template>
 
       <p class="foot-note">
-        Phase 1 is the shell: menu, widget grid and chart anatomy, built against the Aug 11, 2026 Semrush snapshot.
+        Phase 1 is the shell: menu, widget grid and chart anatomy.
         Headline figures are transcribed from that pull; the daily and monthly series behind the two area charts and the
         position-change columns are reconstructed to the shape shown, since the dashboard exposes endpoints rather than
-        per-day values. Phase 2 swaps every series for a live Semrush API read.
+        per-day values. Phase 2 swaps every series for a live read from your own Google data.
       </p>
     </main>
 
@@ -2565,9 +2531,9 @@
   }
 
   /* ── Sample data ──────────────────────────────────────────
-     Queries and URLs are the site's real ranking set from the
-     Semrush export; the click and session values are modelled,
-     which is why every screen using them carries a Sample flag.
+     Queries and URLs are drawn from the site's real ranking set;
+     the click and session values are modelled, which is why every
+     screen using them carries a Sample flag and ships switched off.
      ─────────────────────────────────────────────────────────── */
   function rng(seed) {
     var s = seed;
@@ -4467,60 +4433,6 @@
       setTimeout(function () { openReport(lastReport); }, 0);
     }
 
-    // Real Semrush figures from the export. Google's live numbers, applied
-    // below, take precedence where they measure the same thing.
-    if (d.semrush && d.semrush.organic) {
-      var o = d.semrush.organic;
-      setMetric('w-seo', 'Organic Traffic', fmtInt(o.traffic), 'Semrush estimate · ' + d.semrush.dataDate);
-      setMetric('w-seo', 'Organic Keywords', fmtInt(o.keywords), o.distribution.top3 + ' in the top 3');
-      markLive('w-seo', d.semrush.exportedAt);
-      var seoTag = $('w-seo') && $('w-seo').querySelector('.live-tag');
-      if (seoTag) { seoTag.textContent = 'SEMRUSH'; seoTag.style.background = 'var(--accent)'; }
-
-      // Organic Rankings gets the real position spread.
-      var rank = $('w-rankings');
-      if (rank) {
-        var host = rank.querySelector('.w-body');
-        if (host) {
-          host.innerHTML = '<span class="eyebrow">Keywords by position</span><div class="dist" style="margin-top:8px"></div>' +
-            '<div class="divider" style="margin:14px 0 10px"></div>' +
-            '<span class="eyebrow">Top keywords</span><div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>';
-          var bands = [
-            { band: 'Top 3',  n: o.distribution.top3 },
-            { band: '4–10',   n: o.distribution.p4_10 },
-            { band: '11–20',  n: o.distribution.p11_20 },
-            { band: '21–50',  n: o.distribution.p21_50 },
-            { band: '51+',    n: o.distribution.p51 }
-          ];
-          var max = Math.max.apply(null, bands.map(function (b) { return b.n; })) || 1;
-          var dist = host.querySelector('.dist');
-          bands.forEach(function (b, i) {
-            var row = document.createElement('div');
-            row.className = 'dist-row';
-            row.innerHTML = '<span class="band"></span>' +
-              '<span class="dist-track"><span class="dist-fill"></span></span>' +
-              '<span class="pct num"></span><span class="ct num"></span>';
-            row.children[0].textContent = b.band;
-            row.children[1].firstChild.style.width = Math.max(2, b.n / max * 100) + '%';
-            row.children[1].firstChild.style.background = css('--p' + Math.min(i + 1, 5));
-            row.children[2].textContent = Math.round(b.n / o.keywords * 100) + '%';
-            row.children[3].textContent = b.n;
-            dist.appendChild(row);
-          });
-          renderTable(host.querySelector('table'), [
-            { key: 'keyword', label: 'Keyword' },
-            { key: 'position', label: 'Pos' },
-            { key: 'volume', label: 'Volume', fmt: fmtInt },
-            { key: 'traffic', label: 'Traffic', fmt: fmtInt }
-          ], o.topKeywords.slice(0, 8));
-        }
-        markLive('w-rankings', d.semrush.exportedAt);
-        var rtag = rank.querySelector('.live-tag');
-        if (rtag) { rtag.textContent = 'SEMRUSH'; rtag.style.background = 'var(--accent)'; }
-      }
-      touched.push('Organic Rankings (Semrush export)');
-    }
-
     if (d.searchConsole) {
       var g = d.searchConsole;
       setMetric('w-seo', 'Organic Traffic', fmtInt(g.clicks), g.days + ' days of Search Console clicks');
@@ -4546,7 +4458,7 @@
       }
     }
 
-    // Rankings measured by Search Console. Semrush estimates where the site
+    // Rankings measured by Search Console. A rank tracker estimates where the site
     // ranks by sampling the SERP; this is where it actually ranked, for every
     // query that drew an impression. So it replaces the export rather than
     // sitting beside it.
@@ -4781,7 +4693,7 @@
           });
           drawRankTable('top');
         }
-        // The chips were transcribed from the Semrush screenshot — root
+        // The chips were transcribed from the original mock-up — root
         // domain, United States, Desktop. Search Console reports every device
         // and country together, so leaving them up would misdescribe the data
         // underneath them.
@@ -4813,73 +4725,59 @@
 
       setMetric('w-seo', 'Organic Keywords', fmtInt(k.keywords),
         k.distribution.top3 + ' in the top 3 · Search Console');
+      if (k.totals && typeof k.totals.position === 'number') {
+        setMetric('w-seo', 'Average Position', k.totals.position.toFixed(1),
+          'across every ranking query · Search Console');
+      }
     }
 
-    // Backlinks, the one figure Google will not supply. Search Console's Links
-    // report is web-interface only, so this is Semrush or nothing.
-    if (d.backlinks && d.backlinks.referringDomains !== undefined) {
-      var bl = d.backlinks;
-      setMetric('w-seo', 'Authority Score', String(bl.authority), 'Semrush, live');
-      setMetric('w-seo', 'Backlinks', fmtInt(bl.backlinks), fmtInt(bl.referringIps) + ' referring IPs');
-      setMetric('w-seo', 'Referring Domains', fmtInt(bl.referringDomains),
-        Math.round(bl.followShare) + '% follow');
+    // How this site links to itself, straight from our own crawl. Not
+    // backlinks — who links to you needs a web-wide index nobody here has.
+    // These are the link facts a crawler can genuinely establish.
+    var lg = d.siteAudit && d.siteAudit.links;
+    var linkW = $('w-links');
+    if (lg && linkW) {
+      var lhost = linkW.querySelector('.w-body');
+      if (lhost) {
+        lhost.innerHTML =
+          '<div class="metrics metrics-4">' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Internal links</span></div>' +
+              '<div class="metric-val num" data-k="internal"></div>' +
+              '<div class="metric-note" data-k="avg"></div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Pages crawled</span></div>' +
+              '<div class="metric-val num" data-k="pages"></div>' +
+              '<div class="metric-note">reached by following links</div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Orphan pages</span></div>' +
+              '<div class="metric-val num" data-k="orphans"></div>' +
+              '<div class="metric-note">nothing links to them</div></div>' +
+            '<div class="metric"><div class="metric-label"><span class="eyebrow">Outbound links</span></div>' +
+              '<div class="metric-val num" data-k="outbound"></div>' +
+              '<div class="metric-note">pointing off the site</div></div>' +
+          '</div>' +
+          '<div class="divider" style="margin:14px 0 10px"></div>' +
+          '<span class="eyebrow">Most linked-to pages</span>' +
+          '<div style="overflow-x:auto;margin-top:6px"><table class="data-tbl wrap-first"></table></div>';
 
-      var blw = $('w-backlinks');
-      if (blw) {
-        var bhost = blw.querySelector('.w-body');
-        if (bhost) {
-          bhost.innerHTML =
-            '<div class="metrics metrics-3"></div>' +
-            '<div class="divider" style="margin:14px 0 10px"></div>' +
-            '<span class="eyebrow">Referring domains by authority score</span>' +
-            '<div class="dist" style="margin-top:8px"></div>' +
-            '<p class="field-hint" style="margin:8px 0 0"></p>' +
-            '<div class="divider" style="margin:14px 0 10px"></div>' +
-            '<span class="eyebrow">Strongest referring domains</span>' +
-            '<div style="overflow-x:auto;margin-top:6px"><table class="data-tbl"></table></div>';
+        var set = function (k, v) {
+          var el = lhost.querySelector('[data-k="' + k + '"]');
+          if (el) el.textContent = v;
+        };
+        set('internal', fmtInt(lg.internalLinks));
+        set('avg', lg.avgInternalPerPage + ' per page on average');
+        set('pages', fmtInt(lg.pages));
+        set('orphans', fmtInt(lg.orphanCount));
+        set('outbound', fmtInt(lg.outboundLinks));
 
-          renderKpis(bhost.querySelector('.metrics'), [
-            { key: 'b', label: 'Backlinks', value: fmtInt(bl.backlinks) },
-            { key: 'd', label: 'Referring domains', value: fmtInt(bl.referringDomains) },
-            { key: 'f', label: 'Follow links', value: Math.round(bl.followShare) + '%' }
-          ], null, function () {});
-
-          var bmax = Math.max.apply(null, bl.bands.map(function (b) { return b.count; })) || 1;
-          var bdist = bhost.querySelector('.dist');
-          bl.bands.forEach(function (b, i) {
-            var row = document.createElement('div');
-            row.className = 'dist-row';
-            row.innerHTML = '<span class="band"></span>' +
-              '<span class="dist-track"><span class="dist-fill"></span></span>' +
-              '<span class="pct num"></span><span class="ct num"></span>';
-            row.children[0].textContent = b.label;
-            row.children[1].firstChild.style.width = Math.max(2, b.count / bmax * 100) + '%';
-            row.children[1].firstChild.style.background = css('--r' + (5 - i));
-            row.children[2].textContent = bl.bandsFrom
-              ? Math.round(b.count / bl.bandsFrom * 100) + '%' : '0%';
-            row.children[3].textContent = b.count;
-            bdist.appendChild(row);
-          });
-
-          // The banding is over the sampled domains, not all of them. Saying
-          // so stops the chart being read as the whole link profile.
-          bhost.querySelector('.field-hint').textContent =
-            bl.bandsFrom < bl.referringDomains
-              ? 'Banded from the ' + bl.bandsFrom + ' domains sending the most links, of ' +
-                fmtInt(bl.referringDomains) + ' in total.'
-              : 'All ' + fmtInt(bl.referringDomains) + ' referring domains.';
-
-          renderTable(bhost.querySelector('table'), [
-            { key: 'domain', label: 'Domain' },
-            { key: 'authority', label: 'AS' },
-            { key: 'backlinks', label: 'Links', fmt: fmtInt }
-          ], bl.topDomains, 'Semrush reports no referring domains yet.');
-        }
-        markLive('w-backlinks', d.fetchedAt);
-        var btag = blw.querySelector('.live-tag');
-        if (btag) { btag.textContent = 'SEMRUSH'; btag.style.background = 'var(--accent)'; }
-        touched.push('Backlinks');
+        renderTable(lhost.querySelector('table'), [
+          { key: 'path', label: 'Page' },
+          { key: 'inbound', label: 'Linked from', fmt: fmtInt },
+          { key: 'outbound', label: 'Links out', fmt: fmtInt }
+        ], lg.mostLinked, 'The crawl found no internal links.');
       }
+      markLive('w-links', d.siteAudit.ranAt);
+      var ltag = linkW.querySelector('.live-tag');
+      if (ltag) { ltag.textContent = 'OUR CRAWL'; ltag.style.background = 'var(--accent)'; }
+      touched.push('Links on your site');
     }
 
     if (d.analytics) {
@@ -5026,7 +4924,7 @@
     dashboard: {
       crumb: 'SEO', tag: 'Phase 1',
       title: 'SEO Dashboard: <span class="domain">www.twinhomebuyer.com</span>',
-      strip: 'Static snapshot of the <strong>Aug 11, 2026</strong> Semrush pull — layout and menu first, live data wiring next.'
+      strip: 'Twin SEO measures your site itself: its own crawler, its own AI scan, and your own Google data.'
     },
     gsc: {
       crumb: 'Google Data', tag: 'Search Console',
@@ -5164,8 +5062,7 @@
   }
 
   var REPORTS = {
-    'Organic Rankings': 'rankings',
-    'Backlinks': 'backlinks',
+    'Organic Rankings': 'rankings'
   };
   var lastReport = null;
 
@@ -5342,57 +5239,6 @@
     host.appendChild(tq);
     return 'Search Console';
   }
-
-  function buildBacklinks(host, d) {
-    var bl = d && d.backlinks;
-    var src = (d && d.sources && d.sources.backlinks) || 'unavailable';
-    var s = rSection('Link profile');
-    if (bl) {
-      var kpi = document.createElement('div');
-      kpi.className = 'metrics metrics-4';
-      s.body.appendChild(kpi);
-      renderKpis(kpi, [
-        { key: 'a', label: 'Backlinks', value: fmtInt(bl.backlinks) },
-        { key: 'b', label: 'Referring domains', value: fmtInt(bl.referringDomains) },
-        { key: 'c', label: 'Referring IPs', value: fmtInt(bl.referringIps) },
-        { key: 'd', label: 'Follow links', value: isNum(bl.followShare) ? Math.round(bl.followShare) + '%' : '—' }
-      ], null, function () {});
-      host.appendChild(s);
-
-      if (bl.topDomains && bl.topDomains.length) {
-        var dm = rSection('Referring domains', bl.bandsFrom < bl.referringDomains
-          ? 'The ' + bl.bandsFrom + ' domains sending the most links, of ' + fmtInt(bl.referringDomains) + ' in total.'
-          : 'All ' + fmtInt(bl.referringDomains) + ' referring domains.');
-        dm.body.appendChild(rTable([
-          { key: 'domain', label: 'Domain' },
-          { key: 'authority', label: 'Authority' },
-          { key: 'backlinks', label: 'Links', fmt: fmtInt }
-        ], bl.topDomains, 'None returned.'));
-        host.appendChild(dm);
-      }
-      if (bl.recent && bl.recent.length) {
-        var rc = rSection('Most recent links', 'Newest first, as Semrush last saw them.');
-        rc.body.appendChild(rTable([
-          { key: 'from', label: 'Linking page' },
-          { key: 'anchor', label: 'Anchor', fmt: function (v) { return v || '(none)'; } },
-          { key: 'nofollow', label: 'Follow', fmt: function (v) { return v ? 'nofollow' : 'follow'; } },
-          { key: 'firstSeen', label: 'First seen' },
-          { key: 'lastSeen', label: 'Last seen' }
-        ], bl.recent, 'None returned.'));
-        host.appendChild(rc);
-      }
-      return 'Semrush export';
-    }
-    reportMissing(s.body, null,
-      'No link data is loaded. Twin SEO no longer calls the Semrush API, and no export has been read ' +
-      'in its place.',
-      'To fill this, export Referring Domains from Semrush to Google Drive — the shared console page ' +
-      'already reads that export and breaks the profile down by authority and by shared IP address.');
-    host.appendChild(s);
-    return 'No data';
-  }
-
-
 
   function kpiValue(fmt, v) {
     if (!isNum(v)) return '—';
@@ -5633,9 +5479,6 @@
     if (kind === 'rankings') {
       title = 'Organic Rankings';
       source = buildRankings(host, d);
-    } else if (kind === 'backlinks') {
-      title = 'Backlinks';
-      source = buildBacklinks(host, d);
     } else {
       return;
     }

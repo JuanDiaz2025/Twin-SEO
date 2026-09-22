@@ -121,13 +121,13 @@ const seaConfig = {
   useCodeCache: false,   // the cache is rejected once the blob is relocated anyway
   assets: { dashboard: path.join('dashboard', 'index.html') }
 };
-// The Semrush snapshot is the dashboard's fallback data, so it has to travel
-// inside the binary. app/defaults.json deliberately does NOT: it may hold an
+// The tracked keyword list has to travel inside the binary, so the app knows
+// what to check on a machine with no data folder yet. app/defaults.json
+// deliberately does NOT: it may hold an
 // API key, and this executable is published to a public repository, so baking
 // it in would publish the key. Drop defaults.json next to the exe instead and
 // the app picks it up at runtime.
-for (const [name, file] of [['semrush', 'app/semrush-snapshot.json'],
-                            ['keywords', 'app/keywords.json']]) {
+for (const [name, file] of [['keywords', 'app/keywords.json']]) {
   if (fs.existsSync(path.join(ROOT, file))) seaConfig.assets[name] = file;
   else step(`(no ${file} — skipping that asset)`);
 }
