@@ -1647,11 +1647,22 @@ function readBody(req) {
     let data = '';
     req.on('data', chunk => {
       data += chunk;
-      if (data.length > 1e6) { reject(new Error('Request body too large.')); req.destroy(); }
+      if (data.length > 1e6) {
+        const tooBig = new Error('Request body too large.');
+        tooBig.status = 413;
+        reject(tooBig);
+        req.destroy();
+      }
     });
     req.on('end', () => {
       if (!data) return resolve({});
-      try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Invalid JSON body.')); }
+      try {
+        resolve(JSON.parse(data));
+      } catch (e) {
+        const bad = new Error('Invalid JSON body.');
+        bad.status = 400;
+        reject(bad);
+      }
     });
     req.on('error', reject);
   });
@@ -1781,8 +1792,20 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/pagespeed') {
       const target = url.searchParams.get('url') || loadConfig().gscSite;
       if (!target) return send(res, 400, { error: 'No URL to test.' });
+      // Only http(s) goes out. Without this anything the caller types —
+      // javascript:, file:, data: — is forwarded verbatim to Google, which
+      // spends the quota to tell us it was never a web page.
+      let psiTarget;
+      try {
+        psiTarget = new URL(/^https?:\/\//i.test(target) ? target : 'https://' + target.replace(/^sc-domain:/, ''));
+      } catch (e) {
+        return send(res, 400, { error: `"${target}" is not a URL I can test.` });
+      }
+      if (!/^https?:$/.test(psiTarget.protocol)) {
+        return send(res, 400, { error: 'PageSpeed can only test http:// and https:// pages.' });
+      }
       const strategy = url.searchParams.get('strategy') || 'mobile';
-      return send(res, 200, await pageSpeed(target, strategy));
+      return send(res, 200, await pageSpeed(psiTarget.toString(), strategy));
     }
 
     if (route === '/api/dashboard') {

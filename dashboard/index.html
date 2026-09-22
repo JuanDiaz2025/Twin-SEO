@@ -1766,27 +1766,6 @@
     down: [0,0,0,0,0,0,1,0,1,0,2,0,2,1,3,1,0,2,1,3,1,0,2,1,2,3,1,2,1]
   };
 
-  var IDEAS = [
-    { name: 'Content',       value: 70 },
-    { name: 'Semantic',      value: 28 },
-    { name: 'Backlinks',     value: 27 },
-    { name: 'Technical SEO', value: 21 },
-    { name: 'SERP Features', value: 20 },
-    { name: 'Strategy',      value: 7  },
-    { name: 'User Experience', value: 0 }
-  ];
-  var IDEAS_TOTAL = 173, IDEAS_PAGES = 29;
-
-  var TOXIC_ROWS = [
-    { url: 'mail.indians.cc/page-27fae353c24b3036845cee91…', score: 100 },
-    { url: 'all-aged-domains.com/page-27fae353c24b3036845…', score: 100 },
-    { url: 'www.domain.com.ic/page-27fae353c24b3036845c…',   score: 91 },
-    { url: 'www.globalecommerce.org/page-27fae353c24b303…',  score: 90 },
-    { url: 'www.domains.com.bz/page/244952/',                score: 88 },
-    { url: 'sapphirevpn.net/all/766/7.html',                 score: 86 },
-    { url: 'www.pudhe.com/page-27fae353c24b3036845cee9…',    score: 84 }
-  ];
-
   var SVGNS = 'http://www.w3.org/2000/svg';
   var gradSeq = 0;
   function el(tag, attrs) {
@@ -1969,115 +1948,6 @@
   }
 
   /* ── Ideas ring (ordinal ramp, part-to-whole) ─────────────── */
-  function ideasRing() {
-    var host = document.getElementById('ringHost');
-    var legend = document.getElementById('ringLegend');
-    var wrap = document.getElementById('ringWrap');
-    host.innerHTML = ''; legend.innerHTML = '';
-    wrap.querySelectorAll('.tip').forEach(function (t) { t.remove(); });
-
-    var S = 132, r = 50, sw = 15, C = 2 * Math.PI * r;
-    var svg = el('svg', { viewBox: '0 0 ' + S + ' ' + S, width: S, height: S, role: 'img',
-      'aria-label': IDEAS_TOTAL + ' optimization ideas across ' + IDEAS_PAGES + ' pages, by idea type' });
-    var g = el('g', { transform: 'rotate(-90 ' + S / 2 + ' ' + S / 2 + ')' });
-    svg.appendChild(g);
-
-    var gap = 2, offset = 0, arcs = [];
-    IDEAS.forEach(function (d, i) {
-      if (!d.value) { arcs.push(null); return; }
-      var len = d.value / IDEAS_TOTAL * C;
-      var arc = el('circle', {
-        cx: S / 2, cy: S / 2, r: r, fill: 'none',
-        stroke: ramp(i), 'stroke-width': sw,
-        'stroke-dasharray': Math.max(1, len - gap) + ' ' + (C - Math.max(1, len - gap)),
-        'stroke-dashoffset': -offset
-      });
-      g.appendChild(arc);
-      arcs.push(arc);
-      offset += len;
-    });
-
-    var center = document.createElement('div');
-    center.className = 'ring-center';
-    center.style.cssText = 'position:absolute;inset:0;display:grid;place-content:center;pointer-events:none';
-    center.innerHTML = '<div class="ring-total num">' + IDEAS_TOTAL + '</div>' +
-      '<div class="eyebrow">ideas</div>';
-    var box = document.createElement('div');
-    box.style.cssText = 'position:relative;width:' + S + 'px;height:' + S + 'px';
-    box.appendChild(svg); box.appendChild(center);
-    host.appendChild(box);
-
-    var tip = makeTip(wrap);
-    IDEAS.forEach(function (d, i) {
-      var row = document.createElement('div');
-      row.className = 'legend-row' + (d.value ? '' : ' is-zero');
-      row.innerHTML = '<span class="swatch" style="background:' + (d.value ? ramp(i) : 'var(--baseline)') + '"></span>' +
-        '<span>' + d.name + '</span>' +
-        '<span class="legend-val">' + (d.value || '—') + '</span>';
-      row.addEventListener('pointerenter', function () {
-        row.classList.add('is-active');
-        if (arcs[i]) arcs[i].setAttribute('stroke-width', sw + 4);
-      });
-      row.addEventListener('pointerleave', function () {
-        row.classList.remove('is-active');
-        if (arcs[i]) arcs[i].setAttribute('stroke-width', sw);
-      });
-      legend.appendChild(row);
-    });
-
-    svg.addEventListener('pointerleave', function () { tip.hide(); });
-    arcs.forEach(function (arc, i) {
-      if (!arc) return;
-      arc.style.cursor = 'default';
-      arc.addEventListener('pointerenter', function (ev) {
-        var wr = wrap.getBoundingClientRect();
-        tip.show(ev.clientX - wr.left, ev.clientY - wr.top,
-          IDEAS[i].name, IDEAS[i].value + ' ideas · ' + Math.round(IDEAS[i].value / IDEAS_TOTAL * 100) + '%', ramp(i));
-      });
-    });
-  }
-
-  /* ── Toxicity stacked bar ─────────────────────────────────── */
-  function toxicityBar() {
-    var host = document.getElementById('toxHost');
-    host.innerHTML = '';
-    var parts = [
-      { k: 'Toxic', v: 13, pct: 18.6, c: css('--critical') },
-      { k: 'Potentially toxic', v: 4, pct: 5.7, c: css('--warning') },
-      { k: 'Non-toxic', v: 53, pct: 75.7, c: css('--good') }
-    ];
-    var W = Math.max(240, Math.round(host.clientWidth || 320)), H = 14, gap = 2, total = 70;
-    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
-      'aria-label': 'Referring domain toxicity: 13 toxic, 4 potentially toxic, 53 non-toxic of 70' });
-    var x = 0;
-    var tip = makeTip(host);
-    parts.forEach(function (p, i) {
-      var w = p.v / total * W - (i < parts.length - 1 ? gap : 0);
-      var rect = el('rect', { x: x, y: 0, width: Math.max(3, w), height: H, rx: 4, fill: p.c });
-      rect.addEventListener('pointerenter', function (ev) {
-        var r = host.getBoundingClientRect();
-        tip.show(ev.clientX - r.left, H, p.k, p.v + ' domains · ' + p.pct + '%', p.c);
-      });
-      rect.addEventListener('pointerleave', function () { tip.hide(); });
-      svg.appendChild(rect);
-      x += p.v / total * W;
-    });
-    host.appendChild(svg);
-  }
-
-  /* ── Static table + distribution ──────────────────────────── */
-  function toxicTable() {
-    var body = document.getElementById('toxRows');
-    if (!body) return;   // the card it drew into has been removed
-    body.innerHTML = '';
-    TOXIC_ROWS.forEach(function (r) {
-      var tr = document.createElement('tr');
-      tr.innerHTML = '<td><span>' + r.url + '</span></td>' +
-        '<td class="score-cell' + (r.score >= 90 ? ' score-100' : '') + '">' + r.score + '</td>';
-      body.appendChild(tr);
-    });
-  }
-
   /* ── Render all charts ────────────────────────────────────── */
   function renderCharts() {
     var tHost = document.getElementById('trafficChart');
@@ -2099,11 +1969,8 @@
       spark(h, TRAFFIC.values);
     });
 
-    if (document.getElementById('ringHost')) ideasRing();
-    if (document.getElementById('toxHost')) toxicityBar();
   }
 
-  toxicTable();
   renderCharts();
 
   // Re-render on theme flip so chart ink follows the tokens.
