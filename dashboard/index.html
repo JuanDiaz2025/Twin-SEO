@@ -5238,7 +5238,7 @@
       { key: 'from', label: 'Was', fmt: fmtPos },
       { key: 'to', label: 'Now', fmt: fmtPos },
       { key: 'delta', label: 'Move', fmt: function (v) {
-        return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1); } },
+        return (v > 0 ? 'up ' : 'down ') + Math.abs(v).toFixed(1) + ' places'; } },
       { key: 'clicks', label: 'Clicks', fmt: fmtInt },
       { key: 'impressions', label: 'Impr.', fmt: fmtInt }
     ], k.movers, 'No query moved by a full position this period.'));
@@ -5266,33 +5266,45 @@
 
   // A KPI tile that says which way is good. Average position improves by
   // falling, so a single "up is green" rule would score the best result red.
-  function kpiTile(k) {
-    var good = k.better === 'down' ? k.v.diff < 0 : k.v.diff > 0;
+  // "up 21 · 210% · was 10" asked the reader to decode three numbers stacked
+  // with dots. One sentence says the same thing: "up from 10". Both figures are
+  // on screen, so the percentage adds nothing but arithmetic — and on a small
+  // base it actively misleads, because 2 to 6 is "up 200%".
+  function kpiChangeText(k) {
+    var from = kpiValue(k.fmt, k.v.from);
     var flat = Math.abs(k.v.diff) < (k.fmt === 'int' ? 0.5 : 0.05);
+    if (flat) return { text: 'no change from ' + from, tone: 'flat' };
+    if (k.v.fromZero) return { text: 'new — none before', tone: 'good' };
+    var good = k.better === 'down' ? k.v.diff < 0 : k.v.diff > 0;
+    // Position is a rank, so "up" and "down" mean the opposite of better and
+    // worse. Say better and worse instead and the ambiguity disappears.
+    var word = k.better === 'down'
+      ? (k.v.diff < 0 ? 'better than ' : 'worse than ')
+      : (k.v.diff > 0 ? 'up from ' : 'down from ');
+    return { text: word + from, tone: good ? 'good' : 'bad' };
+  }
+
+  function kpiTile(k) {
     var tile = document.createElement('div');
     tile.className = 'kpi';
     tile.style.cssText = 'padding:12px 14px';
+
     var lab = document.createElement('div');
     lab.className = 'eyebrow';
     lab.textContent = k.label;
     tile.appendChild(lab);
+
     var big = document.createElement('div');
     big.style.cssText = 'font-size:26px;font-weight:650;line-height:1.15;margin-top:4px';
     big.textContent = kpiValue(k.fmt, k.v.to);
     tile.appendChild(big);
+
+    var c = kpiChangeText(k);
     var sub = document.createElement('div');
     sub.style.cssText = 'font-size:12.5px;margin-top:3px';
-    if (flat) {
-      sub.style.color = 'var(--ink-3)';
-      sub.textContent = 'unchanged from ' + kpiValue(k.fmt, k.v.from);
-    } else {
-      sub.style.color = good ? 'var(--good-text)' : 'var(--critical-text)';
-      var arrow = k.v.diff > 0 ? '▲ ' : '▼ ';
-      var pct = k.v.fromZero ? 'from nothing'
-        : isNum(k.v.pct) ? Math.abs(k.v.pct).toFixed(0) + '%' : '';
-      sub.textContent = arrow + kpiValue(k.fmt, Math.abs(k.v.diff)) +
-        (pct ? ' · ' + pct : '') + ' · was ' + kpiValue(k.fmt, k.v.from);
-    }
+    sub.style.color = c.tone === 'flat' ? 'var(--ink-3)'
+      : c.tone === 'good' ? 'var(--good-text)' : 'var(--critical-text)';
+    sub.textContent = c.text;
     tile.appendChild(sub);
     return tile;
   }
@@ -5346,21 +5358,55 @@
       host.appendChild(warn);
     }
 
-    var head = rSection('The numbers',
-      c.before.startDate + ' → ' + c.before.endDate + ' (' + c.before.days + ' days) compared with ' +
-      c.after.startDate + ' → ' + c.after.endDate + ' (' + c.after.days + ' days). ' +
-      'Big number is the later window; the line under it is the change.');
+    // Dates a person can read at a glance. "2026-08-31 → 2026-09-21" is precise
+    // and unreadable; "31 Aug – 21 Sep" is both.
+    var nice = function (iso) {
+      var d = new Date(iso + 'T00:00:00Z');
+      if (isNaN(d)) return iso;
+      return d.getUTCDate() + ' ' +
+        ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+    };
+    var span = function (w) { return nice(w.startDate) + ' – ' + nice(w.endDate); };
+
+    var head = rSection('What changed',
+      'Now (' + span(c.after) + ') against before (' + span(c.before) + '). ' +
+      'The big figure is now; the line under it is what it was.');
+
+    // Four that answer the question, and the rest folded away. Ten tiles of
+    // equal weight is what made this unreadable — nothing told you where to look.
+    var lead = c.kpis.filter(function (k) { return k.lead; });
+    var rest = c.kpis.filter(function (k) {
+      // Per-day is the same fact divided by the same number unless the two
+      // windows are different lengths.
+      if (k.sameLengthHide && c.comparable) return false;
+      return !k.lead;
+    });
+
     var g = document.createElement('div');
     g.style.cssText = 'display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))';
-    c.kpis.forEach(function (k) { g.appendChild(kpiTile(k)); });
+    lead.forEach(function (k) { g.appendChild(kpiTile(k)); });
     head.body.appendChild(g);
+
+    if (rest.length) {
+      var more = document.createElement('details');
+      more.style.cssText = 'margin-top:14px';
+      var sum = document.createElement('summary');
+      sum.style.cssText = 'cursor:pointer;font-size:12.5px;color:var(--ink-2);padding:4px 0';
+      sum.textContent = 'The rest of the numbers (' + rest.length + ')';
+      more.appendChild(sum);
+      var g2 = document.createElement('div');
+      g2.style.cssText = 'display:grid;gap:10px;margin-top:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))';
+      rest.forEach(function (k) { g2.appendChild(kpiTile(k)); });
+      more.appendChild(g2);
+      head.body.appendChild(more);
+    }
     host.appendChild(head);
 
     var T = c.tracked;
     if (T) {
-      var tk = rSection('Your target keywords',
-        'The same comparison against the ' + fmtInt(T.total) + ' keywords on your list, which is the ' +
-        'measure that speaks to intent rather than to whatever Google happened to show you for.');
+      var tk = rSection('Just your target keywords',
+        'The same question asked only of the ' + fmtInt(T.total) + ' keywords on your list, rather than ' +
+        'everything Google happened to show you for.');
       var tg = document.createElement('div');
       tg.style.cssText = 'display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))';
       [{ label: 'Tracked keywords ranking', better: 'up', fmt: 'int', v: T.seen },
@@ -5372,8 +5418,9 @@
       host.appendChild(tk);
 
       if (T.newlyRanking.length) {
-        var nr = rSection('Target keywords that started ranking',
-          T.newlyRanking.length + ' on your list drew impressions in the later window and none in the earlier one.');
+        var nr = rSection('From your list: started ranking',
+          T.newlyRanking.length + ' keyword' + (T.newlyRanking.length === 1 ? '' : 's') +
+          ' from your target list showed up on Google in the later period, and not at all in the earlier one.');
         nr.body.appendChild(rTable([
           { key: 'term', label: 'Keyword' },
           { key: 'group', label: 'Group' },
@@ -5383,8 +5430,9 @@
         host.appendChild(nr);
       }
       if (T.stoppedRanking.length) {
-        var sr = rSection('Target keywords that stopped ranking',
-          T.stoppedRanking.length + ' drew impressions before and none since.');
+        var sr = rSection('From your list: stopped ranking',
+          T.stoppedRanking.length + ' keyword' + (T.stoppedRanking.length === 1 ? '' : 's') +
+          ' from your target list showed up before and have not since.');
         sr.body.appendChild(rTable([
           { key: 'term', label: 'Keyword' },
           { key: 'group', label: 'Group' },
@@ -5396,20 +5444,23 @@
     }
 
     var mv = rSection('Biggest movers',
-      c.improved + ' queries climbed and ' + c.declined + ' slipped by a full position or more.');
+      c.improved + ' went up and ' + c.declined + ' went down by a full place or more. ' +
+      'A lower position number is better — position 3 beats position 12.');
     mv.body.appendChild(rTable([
       { key: 'query', label: 'Keyword' },
       { key: 'from', label: 'Was', fmt: fmtPos },
       { key: 'to', label: 'Now', fmt: fmtPos },
       { key: 'delta', label: 'Move', fmt: function (v) {
-        return (v > 0 ? '▲ ' : '▼ ') + Math.abs(v).toFixed(1); } },
+        return (v > 0 ? 'up ' : 'down ') + Math.abs(v).toFixed(1) + ' places'; } },
       { key: 'clicksBefore', label: 'Clicks then', fmt: fmtInt },
       { key: 'clicks', label: 'Clicks now', fmt: fmtInt }
     ], c.movers, 'No query moved by a full position between the two windows.'));
     host.appendChild(mv);
 
-    var gn = rSection('Keywords you did not have before',
-      fmtInt(c.gainedCount) + ' queries drew impressions in the later window and none in the earlier one.');
+    var gn = rSection('Everything else: new searches you appeared for',
+      fmtInt(c.gainedCount) + ' search' + (c.gainedCount === 1 ? '' : 'es') + ' brought you up in the later ' +
+      'period and none in the earlier one. This counts every search Google showed you for, not just the ones ' +
+      'on your target list above.');
     gn.body.appendChild(rTable([
       { key: 'query', label: 'Keyword' },
       { key: 'position', label: 'Position', fmt: fmtPos },
@@ -5418,8 +5469,9 @@
     ], c.gained, 'No new queries.'));
     host.appendChild(gn);
 
-    var ls = rSection('Keywords you had and lost',
-      fmtInt(c.lostCount) + ' queries drew impressions in the earlier window and none since.');
+    var ls = rSection('Everything else: searches you no longer appear for',
+      fmtInt(c.lostCount) + ' search' + (c.lostCount === 1 ? '' : 'es') + ' brought you up in the earlier ' +
+      'period and none since.');
     ls.body.appendChild(rTable([
       { key: 'query', label: 'Keyword' },
       { key: 'position', label: 'Was at', fmt: fmtPos },

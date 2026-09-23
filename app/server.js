@@ -564,29 +564,40 @@ async function compareWindows(a, b) {
   // totals alone — a longer window wins on clicks without ranking any better.
   const perDay = (v, d) => (d > 0 ? v / d : 0);
 
+  // Four headline numbers, and the rest behind them. Ten tiles of equal weight
+  // is what made this screen unreadable: nobody knows which one to look at, and
+  // several are the same fact twice.
+  //
+  // "Impressions on page one" is gone entirely. It was a percentage whose change
+  // was also a percentage, sitting beside a third percentage that meant
+  // something else — "69.6%, down 30.4%, 30%, was 100%" is not a sentence
+  // anybody can read.
   const kpis = [
-    { key: 'clicks', label: 'Clicks', better: 'up', fmt: 'int',
+    { key: 'clicks', label: 'Clicks', better: 'up', fmt: 'int', lead: true,
       v: change(before.clicks, after.clicks) },
-    { key: 'clicksPerDay', label: 'Clicks per day', better: 'up', fmt: 'dec',
-      v: change(perDay(before.clicks, before.days), perDay(after.clicks, after.days)) },
-    { key: 'impressions', label: 'Impressions', better: 'up', fmt: 'int',
+    { key: 'impressions', label: 'Times shown on Google', better: 'up', fmt: 'int', lead: true,
       v: change(before.impressions, after.impressions) },
-    { key: 'impressionsPerDay', label: 'Impressions per day', better: 'up', fmt: 'dec',
-      v: change(perDay(before.impressions, before.days), perDay(after.impressions, after.days)) },
+    // The one where down is the win, so it says so in words rather than
+    // relying on the reader to remember.
+    { key: 'position', label: 'Average position', better: 'down', fmt: 'dec', lead: true,
+      v: change(before.position, after.position) },
+    { key: 'top10', label: 'Keywords on page one', better: 'up', fmt: 'int', lead: true,
+      v: change(before.top10, after.top10) },
+
     { key: 'ctr', label: 'Click-through rate', better: 'up', fmt: 'pct',
       v: change(before.ctr, after.ctr) },
-    // The one KPI where down is the win, so it is flagged rather than left to
-    // a reader to remember.
-    { key: 'position', label: 'Average position', better: 'down', fmt: 'dec',
-      v: change(before.position, after.position) },
-    { key: 'queries', label: 'Keywords with impressions', better: 'up', fmt: 'int',
+    { key: 'queries', label: 'Keywords drawing impressions', better: 'up', fmt: 'int',
       v: change(before.queries, after.queries) },
-    { key: 'top10', label: 'Keywords on page one', better: 'up', fmt: 'int',
-      v: change(before.top10, after.top10) },
     { key: 'top3', label: 'Keywords in the top three', better: 'up', fmt: 'int',
       v: change(before.top3, after.top3) },
-    { key: 'page1Share', label: 'Impressions on page one', better: 'up', fmt: 'pct',
-      v: change(before.page1Share, after.page1Share) }
+    // Per-day only earns its place when the two windows are different lengths;
+    // otherwise it is the same fact divided by the same number.
+    { key: 'clicksPerDay', label: 'Clicks per day', better: 'up', fmt: 'dec',
+      sameLengthHide: true,
+      v: change(perDay(before.clicks, before.days), perDay(after.clicks, after.days)) },
+    { key: 'impressionsPerDay', label: 'Shown per day', better: 'up', fmt: 'dec',
+      sameLengthHide: true,
+      v: change(perDay(before.impressions, before.days), perDay(after.impressions, after.days)) }
   ];
 
   // Query-level movement between the two windows.
